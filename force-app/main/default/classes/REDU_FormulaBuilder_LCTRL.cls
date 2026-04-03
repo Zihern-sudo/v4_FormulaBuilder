@@ -11,14 +11,6 @@
 public with sharing class REDU_FormulaBuilder_LCTRL {
 
     // ─────────────────────────────────────────────────────────────────────────
-    // Constants
-    // ─────────────────────────────────────────────────────────────────────────
-
-    private static final String OPERATOR_AND  = 'AND';
-    private static final String OPERATOR_OR   = 'OR';
-    private static final String OPERATOR_NOT  = 'NOT';
-
-    // ─────────────────────────────────────────────────────────────────────────
     // Public AuraEnabled Methods
     // ─────────────────────────────────────────────────────────────────────────
 
@@ -53,9 +45,9 @@ public with sharing class REDU_FormulaBuilder_LCTRL {
                 ' WHERE Id = :recordId' +
                 ' LIMIT 1';
 
-            SObject record = Database.query(query);
-            Object rawValue = record.get(fieldApiName);
-            String fieldValue = rawValue != null ? String.valueOf(rawValue) : '';
+            SObject record    = Database.query(query);
+            Object  rawValue  = record.get(fieldApiName);
+            String  fieldValue = rawValue != null ? String.valueOf(rawValue) : '';
 
             return new REDU_LightningResponse(fieldValue);
 
@@ -96,13 +88,12 @@ public with sharing class REDU_FormulaBuilder_LCTRL {
 
             String query =
                 'SELECT Id, ' + safeField +
-                ' FROM '  + safeObject +
+                ' FROM '      + safeObject +
                 ' WHERE Id = :recordId' +
                 ' LIMIT 1';
 
             SObject record = Database.query(query);
             record.put(fieldApiName, formulaValue);
-
             update record;
 
             return new REDU_LightningResponse(true);
@@ -147,8 +138,22 @@ public with sharing class REDU_FormulaBuilder_LCTRL {
 
     /**
      * @description Validates the syntax of a formula string against a sample record.
-     *              Checks for missing commas, unmatched parentheses, and invalid operators.
-     *              Does NOT evaluate whether the logical output is true or false.
+     *              Checks for unmatched parentheses, missing commas in multi-argument
+     *              function calls, unclosed / invalid string literals (single quotes),
+     *              consecutive operators, operators at start/end, and doubled comparison
+     *              operators.  Does NOT evaluate whether the logical output is true or false.
+     *
+     *              Checks are performed in two phases:
+     *                Phase 1 — A string-literal-aware single-pass character scan that:
+     *                   (a) detects unclosed string literals, reporting the exact position;
+     *                   (b) counts parenthesis depth only for characters outside string
+     *                       literals, so parens embedded in string values are ignored;
+     *                   (c) emits a "stripped" copy of the formula with all string literal
+     *                       content replaced by a neutral placeholder for Phase 2.
+     *                Phase 2 — Pattern-based checks run against the stripped formula
+     *                   to detect operator-level syntax errors without false positives
+     *                   caused by operator keywords that appear inside string values.
+     *
      * @param formula       The formula string to verify
      * @param objectApiName API name of the object the formula belongs to
      * @param recordId      A sample record Id to use for context during verification
@@ -173,34 +178,96 @@ public with sharing class REDU_FormulaBuilder_LCTRL {
                 return new REDU_LightningResponse(result);
             }
 
-            String trimmed    = formula.trim();
-            String normalized = trimmed.replaceAll('\\s+', ' ');
-            String upper      = normalized.toUpperCase();
+            String trimmed = formula.trim();
 
-            // ── Check 1: Balanced parentheses ───────────────────────────────
-            Integer depth = 0;
+            // ─────────────────────────────────────────────────────────────────
+            // PHASE 1: String-literal-aware single-pass scan
+            //
+            // Rules for Salesforce formula string literals:
+            //   • A string literal begins and ends with a single quote character (').
+            //   • Two consecutive single quotes inside a string ('') represent an
+            //     escaped single quote and do NOT close the string.
+            //   • Any character — including (, ), AND, OR — inside a string literal
+            //     is part of the string value and must be ignored by syntax checks.
+            // ─────────────────────────────────────────────────────────────────
+
+            Boolean       insideString    = false;
+            Integer       parenDepth      = 0;
+            Integer       openQuotePos    = -1; // 1-based position of the unclosed opening quote
+            List<String>  strippedChars   = new List<String>();
+
             for (Integer i = 0; i < trimmed.length(); i++) {
                 String ch = trimmed.substring(i, i + 1);
-                if (ch == '(') {
-                    depth++;
-                } else if (ch == ')') {
-                    depth--;
-                    if (depth < 0) {
-                        result.put('isValid',      false);
-                        result.put('errorMessage',
-                            'Unmatched closing parenthesis at character position ' + (i + 1) + '.');
-                        return new REDU_LightningResponse(result);
+
+                if (ch == '\'') {
+                    if (insideString) {
+                        // Two consecutive single quotes inside a string = escaped literal quote.
+                        // Consume both and stay inside the string.
+                        if (i + 1 < trimmed.length() && trimmed.substring(i + 1, i + 2) == '\'') {
+                            i++; // skip the second quote of the escape pair
+                            continue;
+                        }
+                        // Otherwise this is the closing quote.
+                        insideString = false;
+                        openQuotePos = -1;
+                        // Represent the entire string literal as a single space placeholder
+                        // so Phase 2 patterns see a neutral token rather than string content.
+                        strippedChars.add(' ');
+                    } else {
+                        // Opening quote — enter string context.
+                        insideString = true;
+                        openQuotePos = i + 1; // 1-based for the error message
                     }
+
+                } else if (!insideString) {
+                    // Outside a string: track parenthesis depth and collect for Phase 2.
+                    if (ch == '(') {
+                        parenDepth++;
+                    } else if (ch == ')') {
+                        parenDepth--;
+                        if (parenDepth < 0) {
+                            result.put('isValid',      false);
+                            result.put('errorMessage',
+                                'Unmatched closing parenthesis at character position ' + (i + 1) + '.');
+                            return new REDU_LightningResponse(result);
+                        }
+                    }
+                    strippedChars.add(ch);
                 }
+                // Characters inside a string literal are intentionally excluded from
+                // strippedChars — they are part of the string value, not formula syntax.
             }
-            if (depth != 0) {
+
+            // ── Check A: unclosed string literal ────────────────────────────
+            if (insideString) {
                 result.put('isValid',      false);
                 result.put('errorMessage',
-                    'Unmatched opening parenthesis: ' + depth + ' parenthesis(es) left unclosed.');
+                    'Unclosed string literal: the single quote at position ' + openQuotePos +
+                    ' was never closed. Ensure every string value is wrapped in a matching pair' +
+                    ' of single quotes (use \'\' to represent a literal single quote inside a string).');
                 return new REDU_LightningResponse(result);
             }
 
-            // ── Check 2: Consecutive binary operators (AND AND, OR OR, AND OR, etc.) ──
+            // ── Check B: unbalanced opening parentheses ──────────────────────
+            if (parenDepth != 0) {
+                result.put('isValid',      false);
+                result.put('errorMessage',
+                    'Unmatched opening parenthesis: ' + parenDepth +
+                    ' parenthesis(es) left unclosed.');
+                return new REDU_LightningResponse(result);
+            }
+
+            // ─────────────────────────────────────────────────────────────────
+            // PHASE 2: Pattern-based operator checks on the stripped formula.
+            // String literals have been replaced by single-space placeholders, so
+            // none of the patterns below can produce false positives from string content.
+            // ─────────────────────────────────────────────────────────────────
+
+            String stripped    = String.join(strippedChars, '');
+            String normalized  = stripped.replaceAll('\\s+', ' ').trim();
+            String upper       = normalized.toUpperCase();
+
+            // ── Check C: consecutive binary operators (AND AND, OR OR, AND OR…) ──
             Pattern consecutiveOps = Pattern.compile('\\b(AND|OR)\\s+(AND|OR)\\b');
             if (consecutiveOps.matcher(upper).find()) {
                 result.put('isValid',      false);
@@ -210,7 +277,7 @@ public with sharing class REDU_FormulaBuilder_LCTRL {
                 return new REDU_LightningResponse(result);
             }
 
-            // ── Check 3: Formula starts with a binary operator ───────────────
+            // ── Check D: formula starts with a binary operator ───────────────
             Pattern startsWithBinary = Pattern.compile('^(AND|OR)\\b');
             if (startsWithBinary.matcher(upper).find()) {
                 result.put('isValid',      false);
@@ -220,7 +287,7 @@ public with sharing class REDU_FormulaBuilder_LCTRL {
                 return new REDU_LightningResponse(result);
             }
 
-            // ── Check 4: Formula ends with any operator (AND, OR, NOT) ──────
+            // ── Check E: formula ends with any logical operator ──────────────
             Pattern endsWithOp = Pattern.compile('\\b(AND|OR|NOT)\\s*$');
             if (endsWithOp.matcher(upper).find()) {
                 result.put('isValid',      false);
@@ -230,11 +297,12 @@ public with sharing class REDU_FormulaBuilder_LCTRL {
                 return new REDU_LightningResponse(result);
             }
 
-            // ── Check 5: Missing comma inside multi-argument function calls ──
-            // Matches patterns like: FUNCTIONNAME(argA argB) with no comma between args
+            // ── Check F: missing comma inside multi-argument function calls ───
+            // Matches FUNCTION(argA argB) where two tokens appear with only whitespace
+            // between them and no comma, suggesting a missing argument separator.
             Pattern funcMissingComma = Pattern.compile(
-                '\\b(IF|CASE|INCLUDES|EXCLUDES|LEFT|RIGHT|MID|ROUND|MOD|MAX|MIN|VALUE|TEXT|DATEVALUE|DATETIMEVALUE)' +
-                '\\s*\\([^,()]+\\s+[^,()\\s][^,()]*\\)'
+                '\\b(IF|CASE|INCLUDES|EXCLUDES|LEFT|RIGHT|MID|ROUND|MOD|MAX|MIN|VALUE|TEXT|DATEVALUE|DATETIMEVALUE)'
+                + '\\s*\\([^,()]+\\s+[^,()\\s][^,()]*\\)'
             );
             if (funcMissingComma.matcher(upper).find()) {
                 result.put('isValid',      false);
@@ -244,16 +312,17 @@ public with sharing class REDU_FormulaBuilder_LCTRL {
                 return new REDU_LightningResponse(result);
             }
 
-            // ── Check 6: Double comparison operators (e.g. == or =>) ────────
-            Pattern doubleEquals = Pattern.compile('==|=>|=<|<>(?!=)');
+            // ── Check G: doubled / invalid comparison operators (==, =>, =<) ─
+            Pattern doubleEquals = Pattern.compile('==|=>|=<');
             if (doubleEquals.matcher(normalized).find()) {
                 result.put('isValid',      false);
                 result.put('errorMessage',
-                    'Invalid operator detected. Use = for equality, != for not-equal, '
-                    + '<> is also valid for not-equal. Remove any doubled operators (==, =>, =<).');
+                    'Invalid operator detected. Use = for equality and != or <> for not-equal. '
+                    + 'Remove any doubled operators (==, =>, =<).');
                 return new REDU_LightningResponse(result);
             }
 
+            // ── All checks passed ────────────────────────────────────────────
             return new REDU_LightningResponse(result);
 
         } catch (QueryException qex) {
@@ -269,14 +338,17 @@ public with sharing class REDU_FormulaBuilder_LCTRL {
     // ─────────────────────────────────────────────────────────────────────────
 
     /**
-     * @description Validates that a list of string parameters are non-blank
-     * @param values     List of string values to validate
+     * @description Validates that a list of String parameters are non-blank,
+     *              throwing AuraHandledException for the first blank value found
+     * @param values     List of String values to validate
      * @param paramNames Matching list of parameter names used in the error message
      */
     private static void validateParams(List<String> values, List<String> paramNames) {
         for (Integer i = 0; i < values.size(); i++) {
             if (String.isBlank(values[i])) {
-                throw new AuraHandledException(paramNames[i] + ' is required and cannot be blank.');
+                throw new AuraHandledException(
+                    paramNames[i] + ' is required and cannot be blank.'
+                );
             }
         }
     }
