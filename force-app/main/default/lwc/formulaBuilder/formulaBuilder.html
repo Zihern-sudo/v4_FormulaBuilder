@@ -1,0 +1,151 @@
+<!--
+/**
+ * @Author      WDCi ()
+ * @Date        April 2026
+ * @group       Formula Builder
+ * @Description HTML template for the formulaBuilder LWC.
+ *              Renders an interactive formula editor inside a lightning-card,
+ *              with an operator toolbar, Custom Metadata Type picker, inline
+ *              syntax-verify feedback, and Save / Cancel actions.
+ * @changehistory
+ * ISS-002768 2026-04-03 - Initial development of Formula Builder LWC template
+ */
+-->
+<template>
+    <div class="formula-builder-root">
+        <lightning-card title={cardTitle} icon-name="utility:formula">
+
+            <!-- ─── Global Loading Spinner ──────────────────────────────── -->
+            <template if:true={isLoading}>
+                <lightning-spinner
+                    alternative-text="Loading"
+                    size="medium"
+                    class="formula-builder-spinner">
+                </lightning-spinner>
+            </template>
+
+            <!-- ─── Card Body ────────────────────────────────────────────── -->
+            <div class="slds-p-around_medium formula-builder-body">
+
+                <!-- ── Section: Operator Toolbar ──────────────────────────── -->
+                <div class="formula-builder-section formula-builder-toolbar-section">
+                    <p class="formula-builder-section-label slds-text-title_caps">
+                        Insert Operator
+                    </p>
+                    <div class="formula-builder-toolbar slds-button-group-row">
+                        <template for:each={operators} for:item="op">
+                            <lightning-button
+                                key={op.label}
+                                label={op.label}
+                                title={op.title}
+                                variant={op.variant}
+                                data-value={op.value}
+                                onclick={handleInsertOperator}
+                                class="formula-builder-toolbar-btn slds-m-right_xx-small slds-m-bottom_xx-small"
+                                disabled={isLoading}>
+                            </lightning-button>
+                        </template>
+                    </div>
+                </div>
+
+                <!-- ── Section: Custom Metadata Type Picker ────────────────── -->
+                <div class="formula-builder-section formula-builder-metadata-section">
+                    <lightning-combobox
+                        label="Insert Custom Metadata Type"
+                        placeholder="— Select a Metadata Type —"
+                        options={metadataTypeOptions}
+                        value={selectedMetadataType}
+                        onchange={handleMetadataTypeSelect}
+                        disabled={isLoading}
+                        class="formula-builder-metadata-combobox">
+                    </lightning-combobox>
+                </div>
+
+                <!-- ── Section: Formula Editor ─────────────────────────────── -->
+                <div class="formula-builder-section formula-builder-editor-section">
+                    <div class="slds-form-element">
+                        <label
+                            class="slds-form-element__label formula-builder-editor-label"
+                            for="formulaEditor">
+                            <abbr class="slds-required" title="required">*</abbr>
+                            Formula
+                        </label>
+                        <div class="slds-form-element__control">
+                            <textarea
+                                id="formulaEditor"
+                                class="slds-textarea formula-builder-editor-textarea"
+                                value={formulaValue}
+                                onchange={handleFormulaChange}
+                                placeholder="Enter or build your formula here…"
+                                rows="8"
+                                disabled={isLoading}>
+                            </textarea>
+                        </div>
+                        <p class="formula-builder-editor-hint slds-form-element__help">
+                            Use the toolbar above to insert operators, or type directly.
+                            Field references use dot-notation, e.g.&nbsp;
+                            <code>Account.AnnualRevenue</code>.
+                        </p>
+                    </div>
+                </div>
+
+                <!-- ── Verify Result Banner ────────────────────────────────── -->
+                <template if:true={hasVerifyResult}>
+                    <div class={verifyResultClass} role="alert">
+                        <lightning-icon
+                            icon-name={verifyResultIcon}
+                            size="x-small"
+                            class="formula-builder-verify-icon slds-m-right_x-small"
+                            alternative-text="verify result">
+                        </lightning-icon>
+                        <span class="formula-builder-verify-message">{verifyResultMessage}</span>
+                    </div>
+                </template>
+
+                <!-- ── Section: Action Buttons ─────────────────────────────── -->
+                <div class="formula-builder-section formula-builder-actions slds-m-top_medium">
+
+                    <!-- Verify syntax (imperative — does NOT save) -->
+                    <lightning-button
+                        label="Verify Syntax"
+                        variant="neutral"
+                        icon-name="utility:check"
+                        icon-position="left"
+                        title="Check formula syntax without saving"
+                        onclick={handleVerifyFormula}
+                        disabled={isLoading}
+                        class="formula-builder-btn-verify">
+                    </lightning-button>
+
+                    <!-- Save formula to the record -->
+                    <lightning-button
+                        label="Save"
+                        variant="brand"
+                        icon-name="utility:save"
+                        icon-position="left"
+                        title="Save the formula to the record"
+                        onclick={handleSave}
+                        disabled={isLoading}
+                        class="formula-builder-btn-save slds-m-left_small">
+                    </lightning-button>
+
+                    <!-- Cancel — revert to last saved value -->
+                    <lightning-button
+                        label="Cancel"
+                        variant="neutral"
+                        icon-name="utility:close"
+                        icon-position="left"
+                        title="Discard unsaved changes"
+                        onclick={handleCancel}
+                        disabled={isLoading}
+                        class="formula-builder-btn-cancel slds-m-left_small">
+                    </lightning-button>
+
+                </div>
+
+            </div>
+            <!-- /Card Body -->
+
+        </lightning-card>
+    </div>
+</template>

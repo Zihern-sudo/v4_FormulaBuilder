@@ -1,0 +1,104 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<LightningComponentBundle xmlns="http://soap.sforce.com/2006/04/metadata">
+
+    <apiVersion>59.0</apiVersion>
+    <isExposed>true</isExposed>
+    <description>
+        Formula Builder (ISS-002768) — Interactive formula editor LWC.
+        Loads the current formula from a configurable record field, provides
+        an operator toolbar, Custom Metadata Type insertion, inline syntax
+        verification, and saves the updated formula back to the record.
+    </description>
+
+    <!--
+        Supported surfaces:
+          - App pages (AppPage)          — stand-alone formula editor page
+          - Record pages (RecordPage)    — embedded on the record this formula belongs to
+          - Flow screens (Flow)          — usable inside Salesforce Flows
+    -->
+    <targets>
+        <target>lightning__AppPage</target>
+        <target>lightning__RecordPage</target>
+        <target>lightning__FlowScreen</target>
+    </targets>
+
+    <targetConfigs>
+
+        <!-- ── App Page ────────────────────────────────────────────────── -->
+        <targetConfig targets="lightning__AppPage">
+            <property
+                name="recordId"
+                type="String"
+                label="Record Id"
+                description="The Id of the record containing the formula field." />
+            <property
+                name="objectApiName"
+                type="String"
+                label="Object API Name"
+                description="API name of the Salesforce object (e.g. Study_Requirement_Set__c)." />
+            <property
+                name="fieldApiName"
+                type="String"
+                label="Field API Name"
+                description="API name of the field that stores the formula (e.g. Criteria__c)." />
+            <property
+                name="cardTitle"
+                type="String"
+                label="Card Title"
+                description="Heading displayed in the component card."
+                default="Formula Builder" />
+        </targetConfig>
+
+        <!-- ── Record Page ──────────────────────────────────────────────── -->
+        <targetConfig targets="lightning__RecordPage">
+            <!--
+                recordId and objectApiName are provided automatically by the
+                Lightning record page context; they are listed here so admins
+                can override them in Experience Builder if needed.
+            -->
+            <property
+                name="fieldApiName"
+                type="String"
+                label="Formula Field API Name"
+                description="API name of the field that stores the formula (e.g. Criteria__c)."
+                required="true" />
+            <property
+                name="cardTitle"
+                type="String"
+                label="Card Title"
+                description="Heading displayed in the component card."
+                default="Formula Builder" />
+        </targetConfig>
+
+        <!-- ── Flow Screen ──────────────────────────────────────────────── -->
+        <targetConfig targets="lightning__FlowScreen">
+            <property
+                name="recordId"
+                type="String"
+                role="inputOnly"
+                label="Record Id"
+                description="The Id of the record containing the formula field." />
+            <property
+                name="objectApiName"
+                type="String"
+                role="inputOnly"
+                label="Object API Name"
+                description="API name of the Salesforce object." />
+            <property
+                name="fieldApiName"
+                type="String"
+                role="inputOnly"
+                label="Field API Name"
+                description="API name of the field that stores the formula." />
+            <property
+                name="cardTitle"
+                type="String"
+                role="inputOnly"
+                label="Card Title"
+                description="Heading displayed in the component card."
+                default="Formula Builder" />
+        </targetConfig>
+
+    </targetConfigs>
+
+</LightningComponentBundle>
