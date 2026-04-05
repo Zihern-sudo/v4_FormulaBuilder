@@ -5,98 +5,136 @@
     <isExposed>true</isExposed>
     <description>
         Formula Builder (ISS-002768) — Interactive formula editor LWC.
-        Loads the current formula from a configurable record field, provides
-        an operator toolbar, Custom Metadata Type insertion, inline syntax
-        verification, and saves the updated formula back to the record.
+        View mode shows the current formula stored in the configured field.
+        Edit mode exposes System Variables, Fields, Functions and Operators
+        comboboxes that insert tokens at the cursor, a live formula textarea,
+        and a Verify modal that syntax-checks the formula against a sample record
+        before saving it back to the record via the Update button.
     </description>
 
     <!--
         Supported surfaces:
-          - App pages (AppPage)          — stand-alone formula editor page
-          - Record pages (RecordPage)    — embedded on the record this formula belongs to
-          - Flow screens (Flow)          — usable inside Salesforce Flows
+          - Record pages (RecordPage)  — primary target; recordId is auto-supplied
+          - App pages   (AppPage)      — must set recordId manually via the property
+          - Flow screens (Flow)        — all four @api props supplied as flow inputs
     -->
     <targets>
-        <target>lightning__AppPage</target>
         <target>lightning__RecordPage</target>
+        <target>lightning__AppPage</target>
         <target>lightning__FlowScreen</target>
     </targets>
 
     <targetConfigs>
 
-        <!-- ── App Page ────────────────────────────────────────────────── -->
-        <targetConfig targets="lightning__AppPage">
+        <!-- ── Record Page ──────────────────────────────────────────────────
+             recordId and objectApiName are provided automatically by the
+             Lightning record page context and do NOT appear here.
+             Admins only need to configure the field name and edit permissions.
+        ─────────────────────────────────────────────────────────────────── -->
+        <targetConfig targets="lightning__RecordPage">
+
             <property
-                name="recordId"
-                type="String"
-                label="Record Id"
-                description="The Id of the record containing the formula field." />
-            <property
-                name="objectApiName"
+                name="targetObjectApiName"
                 type="String"
                 label="Object API Name"
-                description="API name of the Salesforce object (e.g. Study_Requirement_Set__c)." />
+                description="API name of the object that owns the formula field (e.g. Study_Requirement_Set__c). On a record page this is usually inherited from context but can be overridden here."
+                required="true" />
+
             <property
-                name="fieldApiName"
+                name="targetFieldApiName"
                 type="String"
-                label="Field API Name"
-                description="API name of the field that stores the formula (e.g. Criteria__c)." />
+                label="Formula Field API Name"
+                description="API name of the field that stores the formula string (e.g. Criteria__c)."
+                required="true" />
+
             <property
-                name="cardTitle"
-                type="String"
-                label="Card Title"
-                description="Heading displayed in the component card."
-                default="Formula Builder" />
+                name="allowEdit"
+                type="Boolean"
+                label="Allow Editing"
+                description="Show the Edit button and allow users to modify the formula. Set to false for a read-only display."
+                default="false" />
+
+            <property
+                name="enableDebugMode"
+                type="Boolean"
+                label="Enable Debug Logging"
+                description="When true, verbose debug statements are written to the browser console via logInfo. Disable in production."
+                default="false" />
+
         </targetConfig>
 
-        <!-- ── Record Page ──────────────────────────────────────────────── -->
-        <targetConfig targets="lightning__RecordPage">
-            <!--
-                recordId and objectApiName are provided automatically by the
-                Lightning record page context; they are listed here so admins
-                can override them in Experience Builder if needed.
-            -->
+        <!-- ── App Page ─────────────────────────────────────────────────────
+             All four @api props must be set; recordId must also be provided
+             because there is no implicit record context on an App page.
+        ─────────────────────────────────────────────────────────────────── -->
+        <targetConfig targets="lightning__AppPage">
+
             <property
-                name="fieldApiName"
+                name="targetObjectApiName"
+                type="String"
+                label="Object API Name"
+                description="API name of the Salesforce object (e.g. Study_Requirement_Set__c)."
+                required="true" />
+
+            <property
+                name="targetFieldApiName"
                 type="String"
                 label="Formula Field API Name"
                 description="API name of the field that stores the formula (e.g. Criteria__c)."
                 required="true" />
+
             <property
-                name="cardTitle"
-                type="String"
-                label="Card Title"
-                description="Heading displayed in the component card."
-                default="Formula Builder" />
+                name="allowEdit"
+                type="Boolean"
+                label="Allow Editing"
+                description="Show the Edit button and allow users to modify the formula."
+                default="false" />
+
+            <property
+                name="enableDebugMode"
+                type="Boolean"
+                label="Enable Debug Logging"
+                description="Write verbose debug statements to the browser console via logInfo."
+                default="false" />
+
         </targetConfig>
 
-        <!-- ── Flow Screen ──────────────────────────────────────────────── -->
+        <!-- ── Flow Screen ──────────────────────────────────────────────────
+             All four @api props are available as flow input variables.
+             recordId should be mapped from the flow's record variable.
+        ─────────────────────────────────────────────────────────────────── -->
         <targetConfig targets="lightning__FlowScreen">
+
             <property
-                name="recordId"
-                type="String"
-                role="inputOnly"
-                label="Record Id"
-                description="The Id of the record containing the formula field." />
-            <property
-                name="objectApiName"
+                name="targetObjectApiName"
                 type="String"
                 role="inputOnly"
                 label="Object API Name"
                 description="API name of the Salesforce object." />
+
             <property
-                name="fieldApiName"
+                name="targetFieldApiName"
                 type="String"
                 role="inputOnly"
-                label="Field API Name"
+                label="Formula Field API Name"
                 description="API name of the field that stores the formula." />
+
             <property
-                name="cardTitle"
-                type="String"
+                name="allowEdit"
+                type="Boolean"
                 role="inputOnly"
-                label="Card Title"
-                description="Heading displayed in the component card."
-                default="Formula Builder" />
+                label="Allow Editing"
+                description="Show the Edit button and allow users to modify the formula."
+                default="false" />
+
+            <property
+                name="enableDebugMode"
+                type="Boolean"
+                role="inputOnly"
+                label="Enable Debug Logging"
+                description="Write verbose debug statements to the browser console via logInfo."
+                default="false" />
+
         </targetConfig>
 
     </targetConfigs>

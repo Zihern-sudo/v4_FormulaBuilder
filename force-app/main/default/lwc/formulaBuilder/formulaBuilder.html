@@ -4,9 +4,27 @@
  * @Date        April 2026
  * @group       Formula Builder
  * @Description HTML template for the formulaBuilder LWC.
- *              Renders an interactive formula editor inside a lightning-card,
- *              with an operator toolbar, Custom Metadata Type picker, inline
- *              syntax-verify feedback, and Save / Cancel actions.
+ *
+ *              VIEW MODE  (isEditMode = false)
+ *                A lightning-card titled "Formula Builder" shows the resolved
+ *                field label and the current formula value in a read-only panel.
+ *                An Edit button (visible only when allowEdit = true) switches the
+ *                component into edit mode.
+ *
+ *              EDIT MODE  (isEditMode = true)
+ *                The card title changes to "Formula Builder - With Object and Field".
+ *                Four comboboxes (System Variables, Fields, Functions, Operators)
+ *                let the user insert tokens at the current cursor position.
+ *                A monospaced textarea shows and accepts the live formula text.
+ *                Cancel (reverts) and Update (saves) buttons sit in the card header.
+ *                A "Verify Formula" button opens a modal to syntax-check the formula
+ *                against a sample record via the Apex verifyFormula method.
+ *
+ *              VERIFY MODAL  (isVerifyModalOpen = true)
+ *                An SLDS modal overlaid on the page.  The user pastes / types a
+ *                sample record Id; onchange triggers handleVerifyRecord which calls
+ *                verifyFormula() imperatively and displays the result inline.
+ *
  * @changehistory
  * ISS-002768 2026-04-03 - Initial development of Formula Builder LWC template
  */
@@ -15,7 +33,7 @@
     <div class="formula-builder-root">
         <lightning-card title={cardTitle} icon-name="utility:formula">
 
-            <!-- ─── Global Loading Spinner ──────────────────────────────── -->
+            <!-- ─── Global loading spinner ─────────────────────────────────── -->
             <template if:true={isLoading}>
                 <lightning-spinner
                     alternative-text="Loading"
@@ -24,128 +42,285 @@
                 </lightning-spinner>
             </template>
 
-            <!-- ─── Card Body ────────────────────────────────────────────── -->
-            <div class="slds-p-around_medium formula-builder-body">
+            <!-- ─── Card header action slot ───────────────────────────────── -->
+            <div slot="actions" class="formula-builder-card-actions">
 
-                <!-- ── Section: Operator Toolbar ──────────────────────────── -->
-                <div class="formula-builder-section formula-builder-toolbar-section">
-                    <p class="formula-builder-section-label slds-text-title_caps">
-                        Insert Operator
-                    </p>
-                    <div class="formula-builder-toolbar slds-button-group-row">
-                        <template for:each={operators} for:item="op">
-                            <lightning-button
-                                key={op.label}
-                                label={op.label}
-                                title={op.title}
-                                variant={op.variant}
-                                data-value={op.value}
-                                onclick={handleInsertOperator}
-                                class="formula-builder-toolbar-btn slds-m-right_xx-small slds-m-bottom_xx-small"
-                                disabled={isLoading}>
-                            </lightning-button>
-                        </template>
-                    </div>
-                </div>
+                <!-- View mode: Edit button (only when allowEdit = true) -->
+                <template if:true={showEditButton}>
+                    <lightning-button
+                        label="Edit"
+                        variant="neutral"
+                        icon-name="utility:edit"
+                        icon-position="left"
+                        title="Edit the formula"
+                        onclick={handleEditOnclick}
+                        disabled={isLoading}>
+                    </lightning-button>
+                </template>
 
-                <!-- ── Section: Custom Metadata Type Picker ────────────────── -->
-                <div class="formula-builder-section formula-builder-metadata-section">
-                    <lightning-combobox
-                        label="Insert Custom Metadata Type"
-                        placeholder="— Select a Metadata Type —"
-                        options={metadataTypeOptions}
-                        value={selectedMetadataType}
-                        onchange={handleMetadataTypeSelect}
+                <!-- Edit mode: Cancel + Update -->
+                <template if:true={isEditMode}>
+                    <lightning-button
+                        label="Cancel"
+                        variant="neutral"
+                        title="Discard changes and return to view mode"
+                        onclick={handleCancelOnclick}
                         disabled={isLoading}
-                        class="formula-builder-metadata-combobox">
-                    </lightning-combobox>
-                </div>
+                        class="formula-builder-btn-cancel slds-m-right_x-small">
+                    </lightning-button>
+                    <lightning-button
+                        label="Update"
+                        variant="brand"
+                        title="Save the formula to the record"
+                        onclick={handleUpdateOnclick}
+                        disabled={isLoading}
+                        class="formula-builder-btn-update">
+                    </lightning-button>
+                </template>
 
-                <!-- ── Section: Formula Editor ─────────────────────────────── -->
-                <div class="formula-builder-section formula-builder-editor-section">
-                    <div class="slds-form-element">
-                        <label
-                            class="slds-form-element__label formula-builder-editor-label"
-                            for="formulaEditor">
-                            <abbr class="slds-required" title="required">*</abbr>
-                            Formula
-                        </label>
+            </div>
+            <!-- /slot:actions -->
+
+            <!-- ═══════════════════════════════════════════════════════════════
+                 VIEW MODE
+                 ═══════════════════════════════════════════════════════════ -->
+            <template if:false={isEditMode}>
+                <div class="slds-p-around_medium formula-builder-view-body">
+
+                    <!-- Configured: show label + formula value -->
+                    <template if:true={isConfigured}>
+                        <div class="formula-builder-view-row slds-grid slds-align-top slds-wrap">
+                            <div class="formula-builder-view-label-col slds-col slds-size_2-of-12 slds-small-size_12-of-12">
+                                <span class="formula-builder-view-label slds-text-body_small slds-text-color_weak">
+                                    {fieldLabel}
+                                </span>
+                            </div>
+                            <div class="formula-builder-view-formula-col slds-col slds-size_10-of-12 slds-small-size_12-of-12">
+                                <pre class="formula-builder-view-formula">{currentFormulaValue}</pre>
+                            </div>
+                        </div>
+                    </template>
+
+                    <!-- Not configured: configuration hint -->
+                    <template if:false={isConfigured}>
+                        <p class="formula-builder-unconfigured slds-text-color_weak slds-text-body_small">
+                            Set <strong>targetObjectApiName</strong> and
+                            <strong>targetFieldApiName</strong> to load a formula.
+                        </p>
+                    </template>
+
+                </div>
+            </template>
+            <!-- /VIEW MODE -->
+
+            <!-- ═══════════════════════════════════════════════════════════════
+                 EDIT MODE
+                 ═══════════════════════════════════════════════════════════ -->
+            <template if:true={isEditMode}>
+                <div class="slds-p-around_medium formula-builder-edit-body">
+
+                    <!-- ── Row 1: Four insertion comboboxes ──────────────────── -->
+                    <div class="formula-builder-combobox-row slds-grid slds-wrap slds-gutters_small slds-m-bottom_small">
+
+                        <!-- System Variables (seeds + org Custom MDTs) -->
+                        <div class="slds-col slds-size_1-of-2 slds-medium-size_1-of-4 slds-small-size_1-of-1
+                                    formula-builder-combobox-col">
+                            <lightning-combobox
+                                label="System Variables"
+                                placeholder="Select an Option"
+                                options={systemVariableOptions}
+                                value={_selectedSystemVariable}
+                                onchange={handleSystemVariableChange}
+                                disabled={isLoading}
+                                class="formula-builder-combobox">
+                            </lightning-combobox>
+                        </div>
+
+                        <!-- Fields (from getObjectInfo wire) -->
+                        <div class="slds-col slds-size_1-of-2 slds-medium-size_1-of-4 slds-small-size_1-of-1
+                                    formula-builder-combobox-col">
+                            <lightning-combobox
+                                label="Fields"
+                                placeholder="Select an Option"
+                                options={fieldOptions}
+                                value={_selectedField}
+                                onchange={handleFieldChange}
+                                disabled={isLoading}
+                                class="formula-builder-combobox">
+                            </lightning-combobox>
+                        </div>
+
+                        <!-- Functions (static full list) -->
+                        <div class="slds-col slds-size_1-of-2 slds-medium-size_1-of-4 slds-small-size_1-of-1
+                                    formula-builder-combobox-col">
+                            <lightning-combobox
+                                label="Functions"
+                                placeholder="Select an Option"
+                                options={functionOptions}
+                                value={_selectedFunction}
+                                onchange={handleFunctionChange}
+                                disabled={isLoading}
+                                class="formula-builder-combobox">
+                            </lightning-combobox>
+                        </div>
+
+                        <!-- Operators (static full list) -->
+                        <div class="slds-col slds-size_1-of-2 slds-medium-size_1-of-4 slds-small-size_1-of-1
+                                    formula-builder-combobox-col">
+                            <lightning-combobox
+                                label="Operators"
+                                placeholder="Select an Option"
+                                options={operatorOptions}
+                                value={_selectedOperator}
+                                onchange={handleOperatorChange}
+                                disabled={isLoading}
+                                class="formula-builder-combobox">
+                            </lightning-combobox>
+                        </div>
+
+                    </div>
+                    <!-- /combobox-row -->
+
+                    <!-- ── Row 2: Formula target label ────────────────────────── -->
+                    <p class="formula-builder-target-label slds-text-body_small slds-m-bottom_xx-small">
+                        {formulaTargetLabel}
+                    </p>
+
+                    <!-- ── Row 3: Formula textarea ────────────────────────────── -->
+                    <div class="slds-form-element formula-builder-editor-section">
                         <div class="slds-form-element__control">
                             <textarea
-                                id="formulaEditor"
+                                data-id="formulaTextarea"
                                 class="slds-textarea formula-builder-editor-textarea"
-                                value={formulaValue}
-                                onchange={handleFormulaChange}
+                                value={currentFormulaValue}
+                                oninput={handleFormulaInput}
                                 placeholder="Enter or build your formula here…"
                                 rows="8"
                                 disabled={isLoading}>
                             </textarea>
                         </div>
-                        <p class="formula-builder-editor-hint slds-form-element__help">
-                            Use the toolbar above to insert operators, or type directly.
-                            Field references use dot-notation, e.g.&nbsp;
-                            <code>Account.AnnualRevenue</code>.
-                        </p>
                     </div>
-                </div>
 
-                <!-- ── Verify Result Banner ────────────────────────────────── -->
-                <template if:true={hasVerifyResult}>
-                    <div class={verifyResultClass} role="alert">
-                        <lightning-icon
-                            icon-name={verifyResultIcon}
-                            size="x-small"
-                            class="formula-builder-verify-icon slds-m-right_x-small"
-                            alternative-text="verify result">
-                        </lightning-icon>
-                        <span class="formula-builder-verify-message">{verifyResultMessage}</span>
+                    <!-- ── Row 4: Verify Formula action ───────────────────────── -->
+                    <div class="formula-builder-verify-action slds-m-top_small">
+                        <lightning-button
+                            label="Verify Formula"
+                            variant="neutral"
+                            icon-name="utility:check"
+                            icon-position="left"
+                            title="Check formula syntax against a sample record without saving"
+                            onclick={handleVerifyOnclick}
+                            disabled={isLoading}
+                            class="formula-builder-btn-verify">
+                        </lightning-button>
                     </div>
-                </template>
-
-                <!-- ── Section: Action Buttons ─────────────────────────────── -->
-                <div class="formula-builder-section formula-builder-actions slds-m-top_medium">
-
-                    <!-- Verify syntax (imperative — does NOT save) -->
-                    <lightning-button
-                        label="Verify Syntax"
-                        variant="neutral"
-                        icon-name="utility:check"
-                        icon-position="left"
-                        title="Check formula syntax without saving"
-                        onclick={handleVerifyFormula}
-                        disabled={isLoading}
-                        class="formula-builder-btn-verify">
-                    </lightning-button>
-
-                    <!-- Save formula to the record -->
-                    <lightning-button
-                        label="Save"
-                        variant="brand"
-                        icon-name="utility:save"
-                        icon-position="left"
-                        title="Save the formula to the record"
-                        onclick={handleSave}
-                        disabled={isLoading}
-                        class="formula-builder-btn-save slds-m-left_small">
-                    </lightning-button>
-
-                    <!-- Cancel — revert to last saved value -->
-                    <lightning-button
-                        label="Cancel"
-                        variant="neutral"
-                        icon-name="utility:close"
-                        icon-position="left"
-                        title="Discard unsaved changes"
-                        onclick={handleCancel}
-                        disabled={isLoading}
-                        class="formula-builder-btn-cancel slds-m-left_small">
-                    </lightning-button>
 
                 </div>
-
-            </div>
-            <!-- /Card Body -->
+            </template>
+            <!-- /EDIT MODE -->
 
         </lightning-card>
     </div>
+    <!-- /formula-builder-root -->
+
+    <!-- ═══════════════════════════════════════════════════════════════════════
+         VERIFY FORMULA MODAL
+         Rendered outside the card so it can overlay the full viewport.
+         Opened by handleVerifyOnclick; closed by handleVerifyClose.
+         handleVerifyRecord fires on every change of the record-Id input and
+         immediately calls verifyFormula() imperatively.
+         ═══════════════════════════════════════════════════════════════════ -->
+    <template if:true={isVerifyModalOpen}>
+
+        <section
+            role="dialog"
+            tabindex="-1"
+            aria-modal="true"
+            aria-labelledby="formula-builder-modal-heading"
+            class="slds-modal slds-fade-in-open formula-builder-modal">
+
+            <div class="slds-modal__container formula-builder-modal-container">
+
+                <!-- Modal header ─────────────────────────────────────────────── -->
+                <header class="slds-modal__header">
+                    <button
+                        class="slds-button slds-button_icon slds-modal__close slds-button_icon-inverse
+                               formula-builder-modal-close"
+                        title="Close"
+                        onclick={handleVerifyClose}>
+                        <lightning-icon
+                            icon-name="utility:close"
+                            size="small"
+                            alternative-text="Close modal">
+                        </lightning-icon>
+                    </button>
+                    <h2
+                        id="formula-builder-modal-heading"
+                        class="slds-modal__title slds-hyphenate">
+                        Verify Formula
+                    </h2>
+                </header>
+
+                <!-- Modal body ───────────────────────────────────────────────── -->
+                <div class="slds-modal__content slds-p-around_medium formula-builder-modal-body">
+
+                    <p class="formula-builder-modal-hint slds-text-body_small slds-m-bottom_small">
+                        Paste or type a sample record Id below. The formula syntax will be
+                        validated immediately. This check tests syntax only — it does
+                        <em>not</em> evaluate the formula's logical output.
+                    </p>
+
+                    <!--
+                        onchange fires handleVerifyRecord on every blur / selection.
+                        The handler normalises event.detail.value (lightning-input) and
+                        event.detail.recordId (lightning-record-picker) so this input
+                        can be swapped for a record picker in future without JS changes.
+                    -->
+                    <lightning-input
+                        type="text"
+                        label="Sample Record ID"
+                        placeholder="e.g. a0B000000000001EAA"
+                        message-when-value-missing="A sample record Id is required."
+                        onchange={handleVerifyRecord}
+                        disabled={isLoading}
+                        class="formula-builder-modal-record-input">
+                    </lightning-input>
+
+                    <!-- Verify result banner (appears after handleVerifyRecord resolves) -->
+                    <template if:true={hasVerifyModalResult}>
+                        <div class={verifyModalResultClass} role="alert">
+                            <lightning-icon
+                                icon-name={verifyModalResultIcon}
+                                size="x-small"
+                                alternative-text="Verify result"
+                                class="formula-builder-verify-icon slds-m-right_x-small">
+                            </lightning-icon>
+                            <span class="formula-builder-verify-message">
+                                {verifyModalResultMessage}
+                            </span>
+                        </div>
+                    </template>
+
+                </div>
+                <!-- /modal body -->
+
+                <!-- Modal footer ─────────────────────────────────────────────── -->
+                <footer class="slds-modal__footer">
+                    <lightning-button
+                        label="Close"
+                        variant="neutral"
+                        onclick={handleVerifyClose}
+                        class="formula-builder-btn-modal-close">
+                    </lightning-button>
+                </footer>
+
+            </div>
+        </section>
+
+        <!-- SLDS backdrop darkens the page behind the modal -->
+        <div class="slds-backdrop slds-backdrop_open formula-builder-backdrop"></div>
+
+    </template>
+    <!-- /VERIFY MODAL -->
+
 </template>

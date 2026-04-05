@@ -4,98 +4,121 @@
  * @group       Formula Builder
  * @Description Styles for the formulaBuilder LWC.
  *              All class names are prefixed with formula-builder- per team convention.
+ *              Organised in the same top-to-bottom order as the HTML template:
+ *                1. Root / card chrome
+ *                2. Spinner
+ *                3. Card header actions
+ *                4. VIEW MODE
+ *                5. EDIT MODE — combobox row, target label, editor textarea, verify action
+ *                6. Verify result banner (shared between inline and modal)
+ *                7. VERIFY MODAL
+ *                8. Responsive overrides
  * @changehistory
  * ISS-002768 2026-04-03 - Initial development of Formula Builder LWC styles
  */
 
-/* ─── Root Container ─────────────────────────────────────────────────────── */
+/* ─── 1. Root / card chrome ──────────────────────────────────────────────── */
 
 .formula-builder-root {
     display: block;
     position: relative;
 }
 
-/* ─── Spinner overlay ────────────────────────────────────────────────────── */
+/* ─── 2. Spinner overlay ─────────────────────────────────────────────────── */
 
 .formula-builder-spinner {
     position: absolute;
-    top: 0;
-    left: 0;
-    right: 0;
-    bottom: 0;
+    inset: 0;             /* top/right/bottom/left: 0 shorthand */
     z-index: 100;
     background-color: rgba(255, 255, 255, 0.6);
     border-radius: 0.25rem;
 }
 
-/* ─── Card Body ──────────────────────────────────────────────────────────── */
+/* ─── 3. Card header action slot ─────────────────────────────────────────── */
 
-.formula-builder-body {
+.formula-builder-card-actions {
     display: flex;
-    flex-direction: column;
-    gap: 1rem;
+    align-items: center;
+    gap: 0.5rem;
 }
 
-/* ─── Generic Section Wrapper ────────────────────────────────────────────── */
+/* ─── 4. VIEW MODE ───────────────────────────────────────────────────────── */
 
-.formula-builder-section {
+.formula-builder-view-body {
+    min-height: 4rem;
+}
+
+.formula-builder-view-row {
+    gap: 0.5rem;
+}
+
+/* Field label column ("Criteria") */
+.formula-builder-view-label-col {
+    padding-top: 0.125rem; /* visual alignment with the pre text */
+}
+
+.formula-builder-view-label {
     display: block;
+    font-weight: 600;
+    white-space: nowrap;
 }
 
-.formula-builder-section-label {
-    font-size: 0.75rem;
-    font-weight: 700;
-    letter-spacing: 0.0625rem;
-    color: #3e3e3c;
-    margin-bottom: 0.375rem;
-}
-
-/* ─── Operator Toolbar ───────────────────────────────────────────────────── */
-
-.formula-builder-toolbar-section {
-    padding: 0.75rem;
+/* Formula value column — monospaced pre-formatted block */
+.formula-builder-view-formula {
+    margin: 0;
+    padding: 0.5rem 0.75rem;
+    font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, Courier, monospace;
+    font-size: 0.875rem;
+    line-height: 1.6;
+    color: #1b1b1b;
     background-color: #f3f3f3;
     border: 1px solid #dddbda;
     border-radius: 0.25rem;
+    white-space: pre-wrap;
+    word-break: break-all;
+    overflow-x: auto;
 }
 
-.formula-builder-toolbar {
+/* Hint shown when targetObjectApiName / targetFieldApiName are not set */
+.formula-builder-unconfigured {
+    font-style: italic;
+}
+
+/* ─── 5. EDIT MODE ───────────────────────────────────────────────────────── */
+
+.formula-builder-edit-body {
     display: flex;
-    flex-wrap: wrap;
-    align-items: center;
-    gap: 0.25rem;
+    flex-direction: column;
+    gap: 0.75rem;
 }
 
-.formula-builder-toolbar-btn {
-    /* Override LWC default min-width so short labels (AND, OR, (, )) stay compact */
-    --slds-c-button-neutral-color-background: #ffffff;
-    min-width: 3rem;
+/* ── 5a. Four-combobox insertion row ─ */
+
+.formula-builder-combobox-row {
+    /* slds-grid handles horizontal layout; gap via slds-gutters_small */
 }
 
-.formula-builder-toolbar-btn lightning-button {
-    flex-shrink: 0;
+.formula-builder-combobox-col {
+    /* Each column owns one combobox; SLDS grid sizes handle width */
 }
 
-/* ─── Metadata Type Combobox ─────────────────────────────────────────────── */
-
-.formula-builder-metadata-section {
-    /* sits between toolbar and editor — no extra chrome needed */
-}
-
-.formula-builder-metadata-combobox {
-    max-width: 28rem;
-}
-
-/* ─── Formula Editor ─────────────────────────────────────────────────────── */
-
-.formula-builder-editor-section {
+.formula-builder-combobox {
+    /* Ensure comboboxes fill their column */
     display: block;
 }
 
-.formula-builder-editor-label {
-    font-size: 0.8125rem;
-    font-weight: 600;
-    color: #3e3e3c;
+/* ── 5b. Formula target label ─ */
+
+.formula-builder-target-label {
+    color: #706e6b;
+    font-style: italic;
+    letter-spacing: 0.01rem;
+}
+
+/* ── 5c. Formula editor textarea ─ */
+
+.formula-builder-editor-section {
+    display: block;
 }
 
 .formula-builder-editor-textarea {
@@ -126,30 +149,24 @@
     cursor: not-allowed;
 }
 
-.formula-builder-editor-hint {
-    font-size: 0.75rem;
-    color: #706e6b;
-    margin-top: 0.25rem;
+/* ── 5d. Verify Formula action row ─ */
+
+.formula-builder-verify-action {
+    display: flex;
+    align-items: center;
 }
 
-.formula-builder-editor-hint code {
-    font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, Courier, monospace;
-    font-size: 0.8125rem;
-    background-color: #f3f3f3;
-    border: 1px solid #dddbda;
-    border-radius: 0.125rem;
-    padding: 0 0.2em;
-}
-
-/* ─── Verify Result Banner ───────────────────────────────────────────────── */
+/* ─── 6. Verify result banner (shared: inline modal + any future inline use) */
 
 .formula-builder-verify-banner {
     display: flex;
-    align-items: center;
+    align-items: flex-start;
     border-radius: 0.25rem;
     font-size: 0.8125rem;
     padding: 0.5rem 0.75rem;
     border: 1px solid transparent;
+    line-height: 1.4;
+    gap: 0.375rem;
 }
 
 .formula-builder-verify-banner--success {
@@ -166,43 +183,64 @@
 
 .formula-builder-verify-icon {
     flex-shrink: 0;
+    margin-top: 0.0625rem; /* fine-tune icon baseline alignment */
 }
 
 .formula-builder-verify-message {
-    line-height: 1.4;
+    flex: 1;
 }
 
-/* ─── Action Button Row ──────────────────────────────────────────────────── */
+/* ─── 7. VERIFY MODAL ────────────────────────────────────────────────────── */
 
-.formula-builder-actions {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: center;
-    gap: 0.5rem;
-    padding-top: 0.75rem;
-    border-top: 1px solid #e5e5e5;
+/*
+ * The SLDS modal classes (slds-modal, slds-modal__container, etc.) provide the
+ * structural layout and positioning.  The formula-builder-modal* classes layer
+ * on top for sizing and component-specific tweaks only.
+ */
+
+.formula-builder-modal .formula-builder-modal-container {
+    /* Constrain modal width to a comfortable reading size */
+    max-width: 42rem;
 }
 
-.formula-builder-btn-verify,
-.formula-builder-btn-save,
-.formula-builder-btn-cancel {
-    /* Ensure buttons keep consistent height even when label text differs */
-    flex-shrink: 0;
+.formula-builder-modal-body {
+    /* Ensure at least enough height for the input + result banner */
+    min-height: 10rem;
 }
 
-/* ─── Responsive Adjustments ─────────────────────────────────────────────── */
+.formula-builder-modal-hint {
+    color: #706e6b;
+}
 
-@media (max-width: 480px) {
-    .formula-builder-toolbar {
-        gap: 0.125rem;
-    }
+.formula-builder-modal-record-input {
+    display: block;
+}
 
-    .formula-builder-actions {
+.formula-builder-backdrop {
+    /* SLDS slds-backdrop already handles z-index and dimming;
+       this class is present for component-scoped CSS to hook into if needed */
+}
+
+/* ─── 8. Responsive overrides ────────────────────────────────────────────── */
+
+@media (max-width: 48rem) {
+
+    /* Stack action buttons vertically on small screens */
+    .formula-builder-card-actions {
         flex-direction: column;
-        align-items: flex-start;
+        align-items: flex-end;
     }
 
-    .formula-builder-metadata-combobox {
+    /* Each combobox takes the full row width on very small screens */
+    .formula-builder-combobox-col {
+        margin-bottom: 0.5rem;
+    }
+
+    /* View mode: stack label above formula value */
+    .formula-builder-view-label-col,
+    .formula-builder-view-formula-col {
+        width: 100%;
         max-width: 100%;
+        flex-basis: 100%;
     }
 }
