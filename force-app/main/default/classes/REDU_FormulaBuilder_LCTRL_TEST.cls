@@ -70,9 +70,9 @@ public class REDU_FormulaBuilder_LCTRL_TEST {
         );
         Test.stopTest();
 
-        System.assertNotEquals(null, response,      'Response must not be null');
-        System.assertNotEquals(null, response.data, 'Response data must not be null');
-        System.assertEquals(INITIAL_FORMULA, (String) response.data,
+        System.assertNotEquals(null, response,              'Response must not be null');
+        System.assertNotEquals(null, response.responseData, 'Response data must not be null');
+        System.assertEquals(INITIAL_FORMULA, response.responseData,
             'Returned field value must match the inserted Description');
     }
 
@@ -92,7 +92,7 @@ public class REDU_FormulaBuilder_LCTRL_TEST {
         );
         Test.stopTest();
 
-        System.assertEquals('', (String) response.data,
+        System.assertEquals('', response.responseData,
             'A null field value must return an empty string, not null');
     }
 
@@ -175,7 +175,7 @@ public class REDU_FormulaBuilder_LCTRL_TEST {
         Test.stopTest();
 
         System.assertNotEquals(null, response, 'Response must not be null');
-        System.assertEquals(true, (Boolean) response.data,
+        System.assertEquals('true', response.responseData,
             'Response data must be true on a successful update');
 
         Account updated = [SELECT Description FROM Account WHERE Id = :acc.Id LIMIT 1];
@@ -240,10 +240,10 @@ public class REDU_FormulaBuilder_LCTRL_TEST {
         REDU_LightningResponse response = REDU_FormulaBuilder_LCTRL.getCustomMetadataTypes();
         Test.stopTest();
 
-        System.assertNotEquals(null, response,      'Response must not be null');
-        System.assertNotEquals(null, response.data, 'Response data must not be null');
+        System.assertNotEquals(null, response,              'Response must not be null');
+        System.assertNotEquals(null, response.responseData, 'Response data must not be null');
 
-        List<Object> mdtNames = (List<Object>) response.data;
+        List<Object> mdtNames = (List<Object>) JSON.deserializeUntyped(response.responseData);
         System.assert(mdtNames.size() > 0,
             'At least one Custom Metadata Type must exist in the org');
 
@@ -273,7 +273,7 @@ public class REDU_FormulaBuilder_LCTRL_TEST {
         );
         Test.stopTest();
 
-        Map<String, Object> result = (Map<String, Object>) response.data;
+        Map<String, Object> result = (Map<String, Object>) JSON.deserializeUntyped(response.responseData);
         System.assertEquals(true, (Boolean) result.get('isValid'),
             'Valid infix formula must return isValid = true');
         System.assertEquals(null, result.get('errorMessage'),
@@ -299,7 +299,7 @@ public class REDU_FormulaBuilder_LCTRL_TEST {
         );
         Test.stopTest();
 
-        Map<String, Object> result = (Map<String, Object>) response.data;
+        Map<String, Object> result = (Map<String, Object>) JSON.deserializeUntyped(response.responseData);
         System.assertEquals(true, (Boolean) result.get('isValid'),
             'Function-style AND() formula must return isValid = true');
     }
@@ -320,7 +320,7 @@ public class REDU_FormulaBuilder_LCTRL_TEST {
         );
         Test.stopTest();
 
-        Map<String, Object> result = (Map<String, Object>) response.data;
+        Map<String, Object> result = (Map<String, Object>) JSON.deserializeUntyped(response.responseData);
         System.assertEquals(true, (Boolean) result.get('isValid'),
             'Parentheses and operator keywords inside a string literal must not affect validity');
     }
@@ -340,7 +340,7 @@ public class REDU_FormulaBuilder_LCTRL_TEST {
         );
         Test.stopTest();
 
-        Map<String, Object> result = (Map<String, Object>) response.data;
+        Map<String, Object> result = (Map<String, Object>) JSON.deserializeUntyped(response.responseData);
         System.assertEquals(true, (Boolean) result.get('isValid'),
             'Escaped single quote (\'\') inside a string must not be treated as closing the literal');
     }
@@ -364,7 +364,7 @@ public class REDU_FormulaBuilder_LCTRL_TEST {
         );
         Test.stopTest();
 
-        Map<String, Object> result = (Map<String, Object>) response.data;
+        Map<String, Object> result = (Map<String, Object>) JSON.deserializeUntyped(response.responseData);
         System.assertEquals(false, (Boolean) result.get('isValid'),
             'Unclosed string literal must return isValid = false');
 
@@ -393,7 +393,7 @@ public class REDU_FormulaBuilder_LCTRL_TEST {
         );
         Test.stopTest();
 
-        Map<String, Object> result = (Map<String, Object>) response.data;
+        Map<String, Object> result = (Map<String, Object>) JSON.deserializeUntyped(response.responseData);
         System.assertEquals(false, (Boolean) result.get('isValid'),
             'Unclosed string with an inner paren must return isValid = false');
 
@@ -422,7 +422,7 @@ public class REDU_FormulaBuilder_LCTRL_TEST {
         );
         Test.stopTest();
 
-        Map<String, Object> result = (Map<String, Object>) response.data;
+        Map<String, Object> result = (Map<String, Object>) JSON.deserializeUntyped(response.responseData);
         System.assertEquals(false, (Boolean) result.get('isValid'),
             'Extra opening parenthesis must return isValid = false');
         System.assertNotEquals(null, result.get('errorMessage'),
@@ -444,7 +444,7 @@ public class REDU_FormulaBuilder_LCTRL_TEST {
         );
         Test.stopTest();
 
-        Map<String, Object> result = (Map<String, Object>) response.data;
+        Map<String, Object> result = (Map<String, Object>) JSON.deserializeUntyped(response.responseData);
         System.assertEquals(false, (Boolean) result.get('isValid'),
             'Extra closing parenthesis must return isValid = false');
         System.assertNotEquals(null, result.get('errorMessage'),
@@ -469,7 +469,7 @@ public class REDU_FormulaBuilder_LCTRL_TEST {
         );
         Test.stopTest();
 
-        Map<String, Object> result = (Map<String, Object>) response.data;
+        Map<String, Object> result = (Map<String, Object>) JSON.deserializeUntyped(response.responseData);
         System.assertEquals(false, (Boolean) result.get('isValid'),
             'AND AND must return isValid = false');
         System.assertNotEquals(null, result.get('errorMessage'),
@@ -490,7 +490,7 @@ public class REDU_FormulaBuilder_LCTRL_TEST {
         );
         Test.stopTest();
 
-        Map<String, Object> result = (Map<String, Object>) response.data;
+        Map<String, Object> result = (Map<String, Object>) JSON.deserializeUntyped(response.responseData);
         System.assertEquals(false, (Boolean) result.get('isValid'),
             'OR OR must return isValid = false');
     }
@@ -509,7 +509,7 @@ public class REDU_FormulaBuilder_LCTRL_TEST {
         );
         Test.stopTest();
 
-        Map<String, Object> result = (Map<String, Object>) response.data;
+        Map<String, Object> result = (Map<String, Object>) JSON.deserializeUntyped(response.responseData);
         System.assertEquals(false, (Boolean) result.get('isValid'),
             'Leading AND must return isValid = false');
     }
@@ -528,7 +528,7 @@ public class REDU_FormulaBuilder_LCTRL_TEST {
         );
         Test.stopTest();
 
-        Map<String, Object> result = (Map<String, Object>) response.data;
+        Map<String, Object> result = (Map<String, Object>) JSON.deserializeUntyped(response.responseData);
         System.assertEquals(false, (Boolean) result.get('isValid'),
             'Trailing OR must return isValid = false');
     }
@@ -547,7 +547,7 @@ public class REDU_FormulaBuilder_LCTRL_TEST {
         );
         Test.stopTest();
 
-        Map<String, Object> result = (Map<String, Object>) response.data;
+        Map<String, Object> result = (Map<String, Object>) JSON.deserializeUntyped(response.responseData);
         System.assertEquals(false, (Boolean) result.get('isValid'),
             'Trailing NOT must return isValid = false');
     }
@@ -567,7 +567,7 @@ public class REDU_FormulaBuilder_LCTRL_TEST {
         );
         Test.stopTest();
 
-        Map<String, Object> result = (Map<String, Object>) response.data;
+        Map<String, Object> result = (Map<String, Object>) JSON.deserializeUntyped(response.responseData);
         System.assertEquals(false, (Boolean) result.get('isValid'),
             'Missing comma in IF() must return isValid = false');
         System.assertNotEquals(null, result.get('errorMessage'),
@@ -588,7 +588,7 @@ public class REDU_FormulaBuilder_LCTRL_TEST {
         );
         Test.stopTest();
 
-        Map<String, Object> result = (Map<String, Object>) response.data;
+        Map<String, Object> result = (Map<String, Object>) JSON.deserializeUntyped(response.responseData);
         System.assertEquals(false, (Boolean) result.get('isValid'),
             'Double-equals operator must return isValid = false');
     }
@@ -614,10 +614,10 @@ public class REDU_FormulaBuilder_LCTRL_TEST {
         Test.stopTest();
 
         System.assertEquals(false,
-            (Boolean) ((Map<String, Object>) blankResp.data).get('isValid'),
+            (Boolean) ((Map<String, Object>) JSON.deserializeUntyped(blankResp.responseData)).get('isValid'),
             'Empty formula must return isValid = false');
         System.assertEquals(false,
-            (Boolean) ((Map<String, Object>) wsResp.data).get('isValid'),
+            (Boolean) ((Map<String, Object>) JSON.deserializeUntyped(wsResp.responseData)).get('isValid'),
             'Whitespace-only formula must return isValid = false');
     }
 }

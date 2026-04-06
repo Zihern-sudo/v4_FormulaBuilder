@@ -319,7 +319,8 @@ export default class FormulaBuilder extends LightningElement {
 
         apexGetCustomMetaTypes()
             .then(response => {
-                const mdtNames  = Array.isArray(response.data) ? response.data : [];
+                const raw       = response.responseData;
+                const mdtNames  = raw ? JSON.parse(raw) : [];
                 const combined  = [
                     ...SYSTEM_VARIABLE_SEEDS.map(s => ({ label: s, value: s })),
                     ...mdtNames.map(name => ({ label: name, value: name }))
@@ -371,7 +372,7 @@ export default class FormulaBuilder extends LightningElement {
             recordId      : this.recordId
         })
         .then(response => {
-            const value = response.data != null ? response.data : '';
+            const value = response.responseData != null ? response.responseData : '';
             this.currentFormulaValue  = value;
             this.originalFormulaValue = value;
             this.consoleLog('_loadFieldValue — loaded', { length: value.length });
@@ -558,7 +559,7 @@ export default class FormulaBuilder extends LightningElement {
             recordId      : this._verifyRecordId
         })
         .then(response => {
-            const res = response.data;
+            const res = response.responseData ? JSON.parse(response.responseData) : {};
             this.verifyModalResult = {
                 isValid : res.isValid,
                 message : res.isValid

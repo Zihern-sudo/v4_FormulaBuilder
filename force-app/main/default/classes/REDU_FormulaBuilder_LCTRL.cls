@@ -84,7 +84,7 @@ public with sharing class REDU_FormulaBuilder_LCTRL {
             Object  rawValue   = record.get(fieldApiName);
             String  fieldValue = rawValue != null ? String.valueOf(rawValue) : '';
 
-            return new REDU_LightningResponse(fieldValue);
+            return new REDU_LightningResponse(true, 'Success', fieldValue);
 
         } catch (QueryException qex) {
             String errorMsg = REDU_ObjectSecurity_UTIL.handleQueryException(qex, false);
@@ -132,7 +132,7 @@ public with sharing class REDU_FormulaBuilder_LCTRL {
             record.put(fieldApiName, formulaValue);
             update record;
 
-            return new REDU_LightningResponse(true);
+            return new REDU_LightningResponse(true, 'Update Successful', 'true');
 
         } catch (QueryException qex) {
             String errorMsg = REDU_ObjectSecurity_UTIL.handleQueryException(qex, false);
@@ -162,7 +162,7 @@ public with sharing class REDU_FormulaBuilder_LCTRL {
                 mdtNames.add(ed.QualifiedApiName);
             }
 
-            return new REDU_LightningResponse(mdtNames);
+            return new REDU_LightningResponse(true, 'Success', JSON.serialize(mdtNames));
 
         } catch (QueryException qex) {
             String errorMsg = REDU_ObjectSecurity_UTIL.handleQueryException(qex, false);
@@ -212,7 +212,7 @@ public with sharing class REDU_FormulaBuilder_LCTRL {
             if (String.isBlank(formula)) {
                 result.put('isValid',      false);
                 result.put('errorMessage', 'Formula cannot be empty.');
-                return new REDU_LightningResponse(result);
+                return new REDU_LightningResponse(true, 'Verification Result', JSON.serialize(result));
             }
 
             String trimmed = formula.trim();
@@ -266,7 +266,7 @@ public with sharing class REDU_FormulaBuilder_LCTRL {
                             result.put('isValid',      false);
                             result.put('errorMessage',
                                 'Unmatched closing parenthesis at character position ' + (i + 1) + '.');
-                            return new REDU_LightningResponse(result);
+                            return new REDU_LightningResponse(true, 'Verification Result', JSON.serialize(result));
                         }
                     }
                     strippedChars.add(ch);
@@ -282,7 +282,7 @@ public with sharing class REDU_FormulaBuilder_LCTRL {
                     'Unclosed string literal: the single quote at position ' + openQuotePos +
                     ' was never closed. Ensure every string value is wrapped in a matching pair' +
                     ' of single quotes (use \'\' to represent a literal single quote inside a string).');
-                return new REDU_LightningResponse(result);
+                return new REDU_LightningResponse(true, 'Verification Result', JSON.serialize(result));
             }
 
             // ── Check B: unbalanced opening parentheses ──────────────────────
@@ -291,7 +291,7 @@ public with sharing class REDU_FormulaBuilder_LCTRL {
                 result.put('errorMessage',
                     'Unmatched opening parenthesis: ' + parenDepth +
                     ' parenthesis(es) left unclosed.');
-                return new REDU_LightningResponse(result);
+                return new REDU_LightningResponse(true, 'Verification Result', JSON.serialize(result));
             }
 
             // ─────────────────────────────────────────────────────────────────
@@ -310,7 +310,7 @@ public with sharing class REDU_FormulaBuilder_LCTRL {
                 result.put('errorMessage',
                     'Consecutive logical operators detected (e.g. AND AND, OR OR, AND OR). '
                     + 'Ensure each operator has an operand on both sides.');
-                return new REDU_LightningResponse(result);
+                return new REDU_LightningResponse(true, 'Verification Result', JSON.serialize(result));
             }
 
             // ── Check D: formula starts with a binary operator ───────────────
@@ -319,7 +319,7 @@ public with sharing class REDU_FormulaBuilder_LCTRL {
                 result.put('errorMessage',
                     'Formula cannot begin with a binary logical operator (AND / OR). '
                     + 'Add a left-hand operand or remove the leading operator.');
-                return new REDU_LightningResponse(result);
+                return new REDU_LightningResponse(true, 'Verification Result', JSON.serialize(result));
             }
 
             // ── Check E: formula ends with any logical operator ──────────────
@@ -328,7 +328,7 @@ public with sharing class REDU_FormulaBuilder_LCTRL {
                 result.put('errorMessage',
                     'Formula cannot end with a logical operator (AND / OR / NOT). '
                     + 'Add a right-hand operand or remove the trailing operator.');
-                return new REDU_LightningResponse(result);
+                return new REDU_LightningResponse(true, 'Verification Result', JSON.serialize(result));
             }
 
             // ── Check F: missing comma inside multi-argument function calls ───
@@ -337,7 +337,7 @@ public with sharing class REDU_FormulaBuilder_LCTRL {
                 result.put('errorMessage',
                     'Possible missing comma inside a function call. '
                     + 'Ensure all function arguments are separated by commas.');
-                return new REDU_LightningResponse(result);
+                return new REDU_LightningResponse(true, 'Verification Result', JSON.serialize(result));
             }
 
             // ── Check G: doubled / invalid comparison operators (==, =>, =<) ─
@@ -346,11 +346,11 @@ public with sharing class REDU_FormulaBuilder_LCTRL {
                 result.put('errorMessage',
                     'Invalid operator detected. Use = for equality and != or <> for not-equal. '
                     + 'Remove any doubled operators (==, =>, =<).');
-                return new REDU_LightningResponse(result);
+                return new REDU_LightningResponse(true, 'Verification Result', JSON.serialize(result));
             }
 
             // ── All checks passed ────────────────────────────────────────────
-            return new REDU_LightningResponse(result);
+            return new REDU_LightningResponse(true, 'Success', JSON.serialize(result));
 
         } catch (Exception exp) {
             throw REDU_Exception_UTIL.auraException(exp.getMessage(), exp.getLineNumber(), null);
