@@ -410,15 +410,18 @@
                         onclick={handleVerifyClose}
                         class="slds-m-right_x-small">
                     </lightning-button>
-                    <lightning-button
-                        label="Verify"
-                        variant="brand"
-                        icon-name="utility:check"
-                        icon-position="left"
-                        title="Re-run formula syntax verification"
-                        disabled={isLoading}
-                        onclick={handleReverifyOnclick}>
-                    </lightning-button>
+                    <!-- Only shown after the first auto-verify has produced a result -->
+                    <template if:true={hasVerifyModalResult}>
+                        <lightning-button
+                            label="Verify Again"
+                            variant="brand"
+                            icon-name="utility:refresh"
+                            icon-position="left"
+                            title="Re-run formula syntax verification"
+                            disabled={isLoading}
+                            onclick={handleReverifyOnclick}>
+                        </lightning-button>
+                    </template>
                 </footer>
 
             </div>
