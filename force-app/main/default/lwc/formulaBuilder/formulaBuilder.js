@@ -552,18 +552,36 @@ export default class FormulaBuilder extends LightningElement {
     /**
      * @description Triggered when the user leaves the "Sample Record ID" input
      *              inside the Verify modal (onchange fires on blur in LWC).
-     *              Stores the typed value and immediately calls verifyFormula()
-     *              so the user does not need a separate Verify button.
-     *              The record Id is optional — Apex performs syntax-only checks
-     *              regardless of whether a valid Id is supplied.
+     *              Stores the new value and immediately runs a fresh verification.
      * @param {Event} event onchange event from lightning-input
      */
     handleVerifyRecordInput(event) {
-        this._verifyRecordId   = (event.detail.value || '').trim();
+        this._verifyRecordId = (event.detail.value || '').trim();
+        this.consoleLog('handleVerifyRecordInput', { recordId: this._verifyRecordId });
+        this._runVerify();
+    }
+
+    /**
+     * @description Triggered by the "Verify" button in the modal footer.
+     *              Re-runs verification with the existing record Id so the user
+     *              does not need to clear and re-type it after correcting the formula.
+     */
+    handleReverifyOnclick() {
+        this.consoleLog('handleReverifyOnclick — re-verifying with existing record Id',
+            { recordId: this._verifyRecordId });
+        this._runVerify();
+    }
+
+    /**
+     * @description Calls verifyFormula() imperatively and updates verifyModalResult
+     *              and _formulaVerified.  Shared by handleVerifyRecordInput and
+     *              handleReverifyOnclick so the Apex call is never duplicated.
+     *              The record Id is optional — Apex performs syntax-only checks
+     *              regardless of whether a valid Id is supplied.
+     */
+    _runVerify() {
         this.verifyModalResult = null;
         this._formulaVerified  = false;
-        this.consoleLog('handleVerifyRecordInput — auto-verifying', { recordId: this._verifyRecordId });
-
         this.toggleSpinner(1);
 
         apexVerifyFormula({
@@ -580,12 +598,12 @@ export default class FormulaBuilder extends LightningElement {
                     ? 'Formula syntax is valid. You may now close and save.'
                     : res.errorMessage
             };
-            this.consoleLog('handleVerifyRecordInput — result', this.verifyModalResult);
+            this.consoleLog('_runVerify — result', this.verifyModalResult);
         })
         .catch(error => {
             this._formulaVerified  = false;
             this.verifyModalResult = null;
-            this.consoleLog('handleVerifyRecordInput — error', error);
+            this.consoleLog('_runVerify — error', error);
             promptError(this, getErrorMessage(error));
         })
         .finally(() => {

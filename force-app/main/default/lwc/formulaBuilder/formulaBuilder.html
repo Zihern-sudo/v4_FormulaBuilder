@@ -326,17 +326,19 @@
 
             <div class="slds-modal__container formula-builder-modal__container">
 
-                <!-- Modal header -->
-                <header class="slds-modal__header">
+                <!-- Modal header — close button is INSIDE the header so the
+                     dark header background makes the bare-inverse (white) icon visible -->
+                <header class="slds-modal__header formula-builder-modal__header">
+                    <h2 class="slds-modal__title slds-hyphenate">Verify Formula</h2>
                     <lightning-button-icon
                         icon-name="utility:close"
                         alternative-text="Close"
                         title="Close"
                         variant="bare-inverse"
+                        size="small"
                         onclick={handleVerifyClose}
-                        class="slds-modal__close">
+                        class="formula-builder-modal__close-btn">
                     </lightning-button-icon>
-                    <h2 class="slds-modal__title slds-hyphenate">Verify Formula</h2>
                 </header>
 
                 <!-- Modal body -->
@@ -405,7 +407,17 @@
                     <lightning-button
                         label="Close"
                         variant="neutral"
-                        onclick={handleVerifyClose}>
+                        onclick={handleVerifyClose}
+                        class="slds-m-right_x-small">
+                    </lightning-button>
+                    <lightning-button
+                        label="Verify"
+                        variant="brand"
+                        icon-name="utility:check"
+                        icon-position="left"
+                        title="Re-run formula syntax verification"
+                        disabled={isLoading}
+                        onclick={handleReverifyOnclick}>
                     </lightning-button>
                 </footer>
 
