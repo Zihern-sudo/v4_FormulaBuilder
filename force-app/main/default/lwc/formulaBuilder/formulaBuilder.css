@@ -10,11 +10,13 @@
  *                3. Card header actions
  *                4. VIEW MODE
  *                5. EDIT MODE — combobox row, target label, textarea
- *                6. Verify result banner
- *                7. VERIFY MODAL
- *                8. Responsive overrides
+ *                6. Inline verify section
+ *                7. Verify result banner
+ *                8. VERIFY MODAL (dead styles — modal removed; kept for reference)
+ *                9. Responsive overrides
  * @changehistory
  * ISS-002768 2026-04-03 - Initial development of Formula Builder LWC styles
+ * ISS-002768 2026-04-06 - Added inline verify section styles; renumbered sections
  */
 
 /* ─── 1. Root / wrapper ──────────────────────────────────────────────────── */
@@ -135,7 +137,26 @@
     min-height: 180px;
 }
 
-/* ─── 6. Verify result banner ─────────────────────────────────────────────── */
+/* ─── 6. Inline verify section ───────────────────────────────────────────── */
+
+.formula-builder-verify-section {
+    display: block;
+}
+
+.formula-builder-verify-section__input {
+    display: block;
+}
+
+.formula-builder-verify-section__hint {
+    color: #706e6b;
+    font-style: italic;
+}
+
+.formula-builder-verify-section__result {
+    display: block;
+}
+
+/* ─── 7. Verify result banner ─────────────────────────────────────────────── */
 
 .formula-builder-result {
     display: flex;
@@ -167,7 +188,7 @@
     flex: 1;
 }
 
-/* ─── 7. VERIFY MODAL ────────────────────────────────────────────────────── */
+/* ─── 8. VERIFY MODAL (dead styles — modal removed; kept for reference) ─── */
 
 /*
  * The SLDS modal classes (slds-modal, slds-modal__container, etc.) provide the
@@ -200,7 +221,7 @@
     display: block;
 }
 
-/* ─── 8. Responsive overrides ────────────────────────────────────────────── */
+/* ─── 9. Responsive overrides ────────────────────────────────────────────── */
 
 @media (max-width: 48rem) {
 

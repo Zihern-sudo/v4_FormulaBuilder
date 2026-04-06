@@ -1,6 +1,6 @@
 <!--
 /**
- * @Author      WDCi ()
+ * @Author      WDCi (Zihern)
  * @Date        April 2026
  * @group       Formula Builder
  * @Description HTML template for the formulaBuilder LWC.
@@ -11,22 +11,21 @@
  *                3. Main card             — gated on isInitSuccess
  *                   a. VIEW MODE   (if:false={isEditMode})
  *                      - field label (left) + <pre> formula value (right)
- *                      - Header: Edit (if allowEdit+isConfigured), Verify Formula,
- *                        Refresh icon
+ *                      - Header: Edit (if allowEdit+isConfigured), Refresh icon
  *                   b. EDIT MODE   (if:true={isEditMode})
  *                      - lightning-layout row: System Variables | Fields |
  *                        Functions | Operators comboboxes
  *                      - formulaTargetLabel (muted sub-heading)
  *                      - lightning-textarea (rows=10, onchange)
- *                      - Header: Update (brand), Cancel (neutral), Refresh icon
- *                4. Verify Formula modal   — gated on isVerifyModalOpen
- *                   - lightning-record-picker for sample record selection
- *                   - "Verify" button  → handleVerifyRecord
- *                   - Result block: green success OR red error message
- *                   - "Close" button
+ *                      - Inline verify section: record Id input (auto-verifies
+ *                        on blur) + result banner
+ *                      - Header: Update (brand, disabled until verified valid),
+ *                        Cancel (neutral), Refresh icon
  *
  * @changehistory
  * ISS-002768 2026-04-03 - Initial development of Formula Builder LWC template
+ * ISS-002768 2026-04-06 - Moved verify inline into editor; auto-verify on record
+ *                         Id input; Update button gated on valid verification
  */
 -->
 <template>
@@ -79,18 +78,6 @@
                             </lightning-button>
                         </template>
 
-                        <!-- Verify Formula — always visible in view mode -->
-                        <lightning-button
-                            label="Verify Formula"
-                            variant="neutral"
-                            icon-name="utility:check"
-                            icon-position="left"
-                            title="Verify formula syntax against a sample record"
-                            onclick={handleVerifyOnclick}
-                            disabled={isLoading}
-                            class="formula-builder-btn-verify slds-m-right_xx-small">
-                        </lightning-button>
-
                         <!-- Refresh icon button -->
                         <lightning-button-icon
                             icon-name="utility:refresh"
@@ -113,9 +100,9 @@
                             variant="brand"
                             icon-name="utility:save"
                             icon-position="left"
-                            title="Save the formula to the record"
+                            title="Save the formula to the record (verify first to enable)"
                             onclick={handleUpdateOnclick}
-                            disabled={isLoading}
+                            disabled={isUpdateDisabled}
                             class="formula-builder-btn-update slds-m-right_xx-small">
                         </lightning-button>
 
@@ -299,6 +286,71 @@
                                 class="formula-builder-textarea">
                             </lightning-textarea>
 
+                            <!-- ── Row 4: Inline verify section ───────────────
+                                 Enter a sample record Id and leave the field.
+                                 Verification runs automatically on blur (onchange).
+                                 The Update button stays disabled until the formula
+                                 passes the syntax check.
+                            ─────────────────────────────────────────────── -->
+                            <div class="formula-builder-verify-section slds-m-top_medium">
+
+                                <lightning-input
+                                    type="text"
+                                    label="Sample Record ID (optional)"
+                                    placeholder="e.g. a0B000000000001EAA"
+                                    value={_verifyRecordId}
+                                    onchange={handleVerifyRecordInput}
+                                    disabled={isLoading}
+                                    class="formula-builder-verify-section__input">
+                                </lightning-input>
+
+                                <p class="formula-builder-verify-section__hint
+                                          slds-text-body_small slds-text-color_weak
+                                          slds-m-top_xx-small">
+                                    Leave this field to auto-verify syntax.
+                                    The record Id is optional — only syntax is checked.
+                                </p>
+
+                                <!-- Result banner — shown once verify has run -->
+                                <template if:true={hasVerifyModalResult}>
+                                    <div class="formula-builder-verify-section__result slds-m-top_small">
+
+                                        <template if:true={verifyModalIsValid}>
+                                            <div class="formula-builder-result formula-builder-result--success
+                                                        slds-box slds-p-around_small">
+                                                <lightning-icon
+                                                    icon-name="utility:success"
+                                                    size="x-small"
+                                                    alternative-text="Valid"
+                                                    class="formula-builder-result__icon slds-m-right_x-small">
+                                                </lightning-icon>
+                                                <span class="formula-builder-result__text slds-text-color_success">
+                                                    Formula syntax is valid. You may now save.
+                                                </span>
+                                            </div>
+                                        </template>
+
+                                        <template if:true={verifyModalIsInvalid}>
+                                            <div class="formula-builder-result formula-builder-result--error
+                                                        slds-box slds-p-around_small">
+                                                <lightning-icon
+                                                    icon-name="utility:error"
+                                                    size="x-small"
+                                                    alternative-text="Invalid"
+                                                    class="formula-builder-result__icon slds-m-right_x-small">
+                                                </lightning-icon>
+                                                <span class="formula-builder-result__text slds-text-color_error">
+                                                    {verifyModalResultMessage}
+                                                </span>
+                                            </div>
+                                        </template>
+
+                                    </div>
+                                </template>
+
+                            </div>
+                            <!-- /inline verify section -->
+
                         </div>
                     </template>
                     <!-- /EDIT MODE -->
@@ -310,141 +362,5 @@
         </div>
     </template>
     <!-- /isInitSuccess -->
-
-    <!-- ═══════════════════════════════════════════════════════════════════════
-         4. Verify Formula modal
-            Rendered outside the card so it overlays the full viewport.
-            Opened by handleVerifyOnclick; closed by handleVerifyClose.
-         ═══════════════════════════════════════════════════════════════════ -->
-    <template if:true={isVerifyModalOpen}>
-
-        <section
-            role="dialog"
-            tabindex="-1"
-            aria-modal="true"
-            aria-labelledby="formula-builder-modal-heading"
-            class="slds-modal slds-fade-in-open formula-builder-modal">
-
-            <div class="slds-modal__container formula-builder-modal__container">
-
-                <!-- Modal header ─────────────────────────────────────────── -->
-                <header class="slds-modal__header">
-                    <button
-                        class="slds-button slds-button_icon slds-modal__close
-                               slds-button_icon-inverse formula-builder-modal__close"
-                        title="Close"
-                        onclick={handleVerifyClose}>
-                        <lightning-icon
-                            icon-name="utility:close"
-                            size="small"
-                            alternative-text="Close modal">
-                        </lightning-icon>
-                    </button>
-                    <h2
-                        id="formula-builder-modal-heading"
-                        class="slds-modal__title slds-hyphenate">
-                        Verify Formula
-                    </h2>
-                </header>
-
-                <!-- Modal body ───────────────────────────────────────────── -->
-                <div class="slds-modal__content slds-p-around_medium
-                            formula-builder-modal__body">
-
-                    <!-- Hint text -->
-                    <p class="formula-builder-modal__hint
-                              slds-text-body_small slds-text-color_weak slds-m-bottom_medium">
-                        Optionally paste a sample record Id to include context in the check.
-                        Syntax is always validated — the formula result is <em>not</em> evaluated.
-                    </p>
-
-                    <!-- Text input: stores typed record Id in _verifyRecordId -->
-                    <lightning-input
-                        type="text"
-                        label="Sample Record ID (optional)"
-                        placeholder="e.g. a0B000000000001EAA"
-                        value={_verifyRecordId}
-                        onchange={handleVerifyRecordInput}
-                        disabled={isLoading}
-                        class="formula-builder-modal__record-input">
-                    </lightning-input>
-
-                    <!-- Verify button — calls handleVerifyRecord (button click) -->
-                    <div class="formula-builder-modal__verify-action slds-m-top_medium">
-                        <lightning-button
-                            label="Verify"
-                            variant="brand"
-                            icon-name="utility:check"
-                            icon-position="left"
-                            title="Run formula syntax verification"
-                            onclick={handleVerifyRecord}
-                            disabled={isLoading}
-                            class="formula-builder-btn-verify-modal">
-                        </lightning-button>
-                    </div>
-
-                    <!-- ── Result area (shown after verification runs) ─────── -->
-                    <template if:true={hasVerifyModalResult}>
-                        <div class="formula-builder-modal__result slds-m-top_medium">
-
-                            <!-- Success: isValid = true -->
-                            <template if:true={verifyModalIsValid}>
-                                <div class="formula-builder-result formula-builder-result--success
-                                            slds-box slds-p-around_small">
-                                    <lightning-icon
-                                        icon-name="utility:success"
-                                        size="x-small"
-                                        alternative-text="Valid"
-                                        class="formula-builder-result__icon slds-m-right_x-small">
-                                    </lightning-icon>
-                                    <span class="formula-builder-result__text slds-text-color_success">
-                                        Formula syntax is valid.
-                                    </span>
-                                </div>
-                            </template>
-
-                            <!-- Error: isValid = false -->
-                            <template if:true={verifyModalIsInvalid}>
-                                <div class="formula-builder-result formula-builder-result--error
-                                            slds-box slds-p-around_small">
-                                    <lightning-icon
-                                        icon-name="utility:error"
-                                        size="x-small"
-                                        alternative-text="Invalid"
-                                        class="formula-builder-result__icon slds-m-right_x-small">
-                                    </lightning-icon>
-                                    <span class="formula-builder-result__text slds-text-color_error">
-                                        {verifyModalResultMessage}
-                                    </span>
-                                </div>
-                            </template>
-
-                        </div>
-                    </template>
-                    <!-- /result area -->
-
-                </div>
-                <!-- /modal body -->
-
-                <!-- Modal footer ─────────────────────────────────────────── -->
-                <footer class="slds-modal__footer">
-                    <lightning-button
-                        label="Close"
-                        variant="neutral"
-                        onclick={handleVerifyClose}
-                        class="formula-builder-btn-modal-close">
-                    </lightning-button>
-                </footer>
-
-            </div>
-            <!-- /slds-modal__container -->
-
-        </section>
-
-        <!-- SLDS backdrop darkens the page behind the modal -->
-        <div class="slds-backdrop slds-backdrop_open formula-builder-backdrop"></div>
-
-    </template>
-    <!-- /isVerifyModalOpen -->
 
 </template>
