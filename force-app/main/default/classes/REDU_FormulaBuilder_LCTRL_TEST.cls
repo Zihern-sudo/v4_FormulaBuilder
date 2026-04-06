@@ -1,5 +1,5 @@
 /**
- * @Author      WDCi ()
+ * @Author      WDCi (Zihern)
  * @Date        April 2026
  * @group       Formula Builder
  * @Description Test class for REDU_FormulaBuilder_LCTRL. Covers getFieldValue,
@@ -30,7 +30,7 @@ public class REDU_FormulaBuilder_LCTRL_TEST {
 
     /**
      * @description Inserts a shared Account whose Description holds the initial
-     *              formula string.  Queried by Id in individual test methods.
+     *              formula string. Queried by Id in individual test methods.
      */
     @TestSetup
     static void makeData() {
@@ -281,18 +281,12 @@ public class REDU_FormulaBuilder_LCTRL_TEST {
     }
 
     /**
-     * @description Valid function-style formula matching the real-world pattern
-     *              shown in the UI design (AND() wrapping multiple conditions)
-     *              → isValid = true.
+     * @description Valid function-style formula: AND() wrapping multiple conditions
+     *              → isValid = true. Verifies AND( is not treated as a binary operator.
      */
     @isTest
     static void testVerifyFormula_ValidFunctionStyleFormula() {
         Account acc     = getTestAccount();
-        // Mirrors the example visible in the wizard design screenshot:
-        // AND(
-        //   reduvivy__Default_Campus__c.Name = 'Sydney',
-        //   NOT(ISBLANK(reduvivy__Contact__c))
-        // )
         String  formula =
             'AND(\n' +
             '  reduvivy__Default_Campus__c.Name = \'Sydney\',\n' +
@@ -318,7 +312,6 @@ public class REDU_FormulaBuilder_LCTRL_TEST {
     @isTest
     static void testVerifyFormula_StringLiteralContent_IsIgnoredByChecks() {
         Account acc     = getTestAccount();
-        // The string 'AND (OR)' contains keywords and parens but must NOT trip any check
         String  formula = 'Account.Name = \'AND (OR)\'';
 
         Test.startTest();
@@ -339,7 +332,6 @@ public class REDU_FormulaBuilder_LCTRL_TEST {
     @isTest
     static void testVerifyFormula_EscapedQuoteInsideString_IsValid() {
         Account acc     = getTestAccount();
-        // "it''s" — two consecutive single quotes represent a literal apostrophe in Salesforce
         String  formula = 'Account.Name = \'it\'\'s a test\'';
 
         Test.startTest();
@@ -358,13 +350,13 @@ public class REDU_FormulaBuilder_LCTRL_TEST {
     // ─────────────────────────────────────────────────────────────────────────
 
     /**
-     * @description Formula with an odd number of single quotes (unclosed string
-     *              literal) → isValid = false with a position-bearing errorMessage.
+     * @description Formula with an unclosed string literal → isValid = false
+     *              and errorMessage must reference the string literal problem.
      */
     @isTest
     static void testVerifyFormula_UnclosedStringLiteral_SingleQuote() {
         Account acc     = getTestAccount();
-        String  formula = 'Account.Name = \'Technology';  // opening quote never closed
+        String  formula = 'Account.Name = \'Technology'; // opening quote never closed
 
         Test.startTest();
         REDU_LightningResponse response = REDU_FormulaBuilder_LCTRL.verifyFormula(
@@ -379,21 +371,20 @@ public class REDU_FormulaBuilder_LCTRL_TEST {
         String errMsg = (String) result.get('errorMessage');
         System.assertNotEquals(null, errMsg,
             'An error message must be present for an unclosed string literal');
-        System.assert(errMsg.containsIgnoreCase('single quote') || errMsg.containsIgnoreCase('string literal'),
-            'Error message must reference the string literal problem; got: ' + errMsg);
+        System.assert(
+            errMsg.containsIgnoreCase('single quote') || errMsg.containsIgnoreCase('string literal'),
+            'Error message must reference the string literal problem; got: ' + errMsg
+        );
     }
 
     /**
-     * @description Formula where a string literal is opened but the remaining
-     *              content also has a paren — the paren is inside the unclosed
-     *              string and must NOT register as a paren error (string-literal
-     *              check fires first).
+     * @description Formula where a string literal is opened and the remaining content
+     *              also has a paren — the paren is inside the unclosed string and must
+     *              NOT register as a paren error (string-literal check fires first).
      */
     @isTest
     static void testVerifyFormula_UnclosedStringLiteral_HidesInvalidParen() {
         Account acc     = getTestAccount();
-        // The paren after the opening quote is inside the unclosed string;
-        // the reported error must be the unclosed quote, not a paren error.
         String  formula = 'Account.Name = \'(hello';
 
         Test.startTest();
@@ -407,8 +398,10 @@ public class REDU_FormulaBuilder_LCTRL_TEST {
             'Unclosed string with an inner paren must return isValid = false');
 
         String errMsg = (String) result.get('errorMessage');
-        System.assert(errMsg.containsIgnoreCase('single quote') || errMsg.containsIgnoreCase('string literal'),
-            'Error must report the unclosed string literal, not a parenthesis problem; got: ' + errMsg);
+        System.assert(
+            errMsg.containsIgnoreCase('single quote') || errMsg.containsIgnoreCase('string literal'),
+            'Error must report the unclosed string literal, not a parenthesis problem; got: ' + errMsg
+        );
     }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -416,8 +409,7 @@ public class REDU_FormulaBuilder_LCTRL_TEST {
     // ─────────────────────────────────────────────────────────────────────────
 
     /**
-     * @description Formula with more opening parens than closing parens
-     *              → isValid = false.
+     * @description Formula with more opening parens than closing parens → isValid = false.
      */
     @isTest
     static void testVerifyFormula_UnmatchedOpenParen() {
@@ -567,7 +559,6 @@ public class REDU_FormulaBuilder_LCTRL_TEST {
     @isTest
     static void testVerifyFormula_MissingCommaInFunctionCall() {
         Account acc     = getTestAccount();
-        // IF(condition value1 value2) — commas omitted between the three arguments
         String  formula = 'IF(Account.AnnualRevenue > 0 \'yes\' \'no\')';
 
         Test.startTest();
@@ -607,8 +598,7 @@ public class REDU_FormulaBuilder_LCTRL_TEST {
     // ─────────────────────────────────────────────────────────────────────────
 
     /**
-     * @description Empty string and whitespace-only formulas → both return
-     *              isValid = false.
+     * @description Empty string and whitespace-only formulas → both return isValid = false.
      */
     @isTest
     static void testVerifyFormula_BlankFormula() {

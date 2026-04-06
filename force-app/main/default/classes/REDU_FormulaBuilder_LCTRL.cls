@@ -1,5 +1,5 @@
 /**
- * @Author      WDCi ()
+ * @Author      WDCi (Zihern)
  * @Date        April 2026
  * @group       Formula Builder
  * @Description Apex controller for the formulaBuilder LWC. Handles field value
@@ -9,6 +9,41 @@
  * ISS-002768 2026-04-03 - Initial development of Formula Builder Apex Controller
  */
 public with sharing class REDU_FormulaBuilder_LCTRL {
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // Private Constants — compiled once at class load time
+    // ─────────────────────────────────────────────────────────────────────────
+
+    /** Matches two consecutive binary operators: AND AND, OR OR, AND OR, etc. */
+    private static final Pattern CONSECUTIVE_OPS = Pattern.compile(
+        '\\b(AND|OR)\\s+(AND|OR)\\b'
+    );
+
+    /**
+     * Matches a formula that STARTS with a binary operator used in infix style.
+     * AND/OR followed by a word boundary — NOT followed by '(' which would
+     * indicate the function form AND(...) / OR(...).
+     */
+    private static final Pattern STARTS_WITH_BINARY = Pattern.compile(
+        '^(AND|OR)\\b'
+    );
+
+    /** Matches a formula that ends with a logical operator (trailing operator). */
+    private static final Pattern ENDS_WITH_OP = Pattern.compile(
+        '\\b(AND|OR|NOT)\\s*$'
+    );
+
+    /**
+     * Matches multi-argument function calls where arguments appear to be separated
+     * only by whitespace instead of commas, suggesting a missing comma.
+     */
+    private static final Pattern FUNC_MISSING_COMMA = Pattern.compile(
+        '\\b(IF|CASE|INCLUDES|EXCLUDES|LEFT|RIGHT|MID|ROUND|MOD|MAX|MIN|VALUE|TEXT|DATEVALUE|DATETIMEVALUE)'
+        + '\\s*\\([^,()]+\\s+[^,()\\s][^,()]*\\)'
+    );
+
+    /** Matches doubled or transposed comparison operators: ==, =>, =< */
+    private static final Pattern DOUBLE_EQUALS = Pattern.compile('==|=>|=<');
 
     // ─────────────────────────────────────────────────────────────────────────
     // Public AuraEnabled Methods
@@ -45,8 +80,8 @@ public with sharing class REDU_FormulaBuilder_LCTRL {
                 ' WHERE Id = :recordId' +
                 ' LIMIT 1';
 
-            SObject record    = Database.query(query);
-            Object  rawValue  = record.get(fieldApiName);
+            SObject record     = Database.query(query);
+            Object  rawValue   = record.get(fieldApiName);
             String  fieldValue = rawValue != null ? String.valueOf(rawValue) : '';
 
             return new REDU_LightningResponse(fieldValue);
@@ -64,7 +99,8 @@ public with sharing class REDU_FormulaBuilder_LCTRL {
      * @param objectApiName API name of the Salesforce object
      * @param fieldApiName  API name of the field to update
      * @param recordId      The Salesforce record Id to update
-     * @param formulaValue  The new formula string to save to the field
+     * @param formulaValue  The new formula string to save to the field; pass an empty
+     *                      string to intentionally clear the field value
      * @return REDU_LightningResponse confirming the update
      */
     @AuraEnabled
@@ -109,7 +145,7 @@ public with sharing class REDU_FormulaBuilder_LCTRL {
     /**
      * @description Retrieves all available Custom Metadata types from the org
      *              by querying EntityDefinition for types ending in '__mdt'
-     * @return REDU_LightningResponse containing a List<String> of CustomMetadata type API names
+     * @return REDU_LightningResponse containing a List<String> of Custom Metadata type API names
      */
     @AuraEnabled(cacheable=true)
     public static REDU_LightningResponse getCustomMetadataTypes() {
@@ -137,11 +173,8 @@ public with sharing class REDU_FormulaBuilder_LCTRL {
     }
 
     /**
-     * @description Validates the syntax of a formula string against a sample record.
-     *              Checks for unmatched parentheses, missing commas in multi-argument
-     *              function calls, unclosed / invalid string literals (single quotes),
-     *              consecutive operators, operators at start/end, and doubled comparison
-     *              operators.  Does NOT evaluate whether the logical output is true or false.
+     * @description Validates the syntax of a formula string.
+     *              Does NOT evaluate whether the logical output is true or false.
      *
      *              Checks are performed in two phases:
      *                Phase 1 — A string-literal-aware single-pass character scan that:
@@ -155,9 +188,13 @@ public with sharing class REDU_FormulaBuilder_LCTRL {
      *                   caused by operator keywords that appear inside string values.
      *
      * @param formula       The formula string to verify
-     * @param objectApiName API name of the object the formula belongs to
-     * @param recordId      A sample record Id to use for context during verification
-     * @return REDU_LightningResponse containing isValid (Boolean) and errorMessage (String)
+     * @param objectApiName Reserved — API name of the object the formula belongs to
+     *                      (not used in the current syntax-only implementation;
+     *                      retained for future schema-aware evaluation)
+     * @param recordId      Reserved — a sample record Id for future context-aware evaluation
+     *                      (not used in the current syntax-only implementation)
+     * @return REDU_LightningResponse containing a Map with keys:
+     *         isValid (Boolean) and errorMessage (String, null when valid)
      */
     @AuraEnabled
     public static REDU_LightningResponse verifyFormula(
@@ -191,10 +228,10 @@ public with sharing class REDU_FormulaBuilder_LCTRL {
             //     is part of the string value and must be ignored by syntax checks.
             // ─────────────────────────────────────────────────────────────────
 
-            Boolean       insideString    = false;
-            Integer       parenDepth      = 0;
-            Integer       openQuotePos    = -1; // 1-based position of the unclosed opening quote
-            List<String>  strippedChars   = new List<String>();
+            Boolean      insideString  = false;
+            Integer      parenDepth    = 0;
+            Integer      openQuotePos  = -1; // 1-based position of the unclosed opening quote
+            List<String> strippedChars = new List<String>();
 
             for (Integer i = 0; i < trimmed.length(); i++) {
                 String ch = trimmed.substring(i, i + 1);
@@ -263,13 +300,12 @@ public with sharing class REDU_FormulaBuilder_LCTRL {
             // none of the patterns below can produce false positives from string content.
             // ─────────────────────────────────────────────────────────────────
 
-            String stripped    = String.join(strippedChars, '');
-            String normalized  = stripped.replaceAll('\\s+', ' ').trim();
-            String upper       = normalized.toUpperCase();
+            String stripped   = String.join(strippedChars, '');
+            String normalized = stripped.replaceAll('\\s+', ' ').trim();
+            String upper      = normalized.toUpperCase();
 
             // ── Check C: consecutive binary operators (AND AND, OR OR, AND OR…) ──
-            Pattern consecutiveOps = Pattern.compile('\\b(AND|OR)\\s+(AND|OR)\\b');
-            if (consecutiveOps.matcher(upper).find()) {
+            if (CONSECUTIVE_OPS.matcher(upper).find()) {
                 result.put('isValid',      false);
                 result.put('errorMessage',
                     'Consecutive logical operators detected (e.g. AND AND, OR OR, AND OR). '
@@ -278,8 +314,7 @@ public with sharing class REDU_FormulaBuilder_LCTRL {
             }
 
             // ── Check D: formula starts with a binary operator ───────────────
-            Pattern startsWithBinary = Pattern.compile('^(AND|OR)\\b');
-            if (startsWithBinary.matcher(upper).find()) {
+            if (STARTS_WITH_BINARY.matcher(upper).find()) {
                 result.put('isValid',      false);
                 result.put('errorMessage',
                     'Formula cannot begin with a binary logical operator (AND / OR). '
@@ -288,8 +323,7 @@ public with sharing class REDU_FormulaBuilder_LCTRL {
             }
 
             // ── Check E: formula ends with any logical operator ──────────────
-            Pattern endsWithOp = Pattern.compile('\\b(AND|OR|NOT)\\s*$');
-            if (endsWithOp.matcher(upper).find()) {
+            if (ENDS_WITH_OP.matcher(upper).find()) {
                 result.put('isValid',      false);
                 result.put('errorMessage',
                     'Formula cannot end with a logical operator (AND / OR / NOT). '
@@ -298,13 +332,7 @@ public with sharing class REDU_FormulaBuilder_LCTRL {
             }
 
             // ── Check F: missing comma inside multi-argument function calls ───
-            // Matches FUNCTION(argA argB) where two tokens appear with only whitespace
-            // between them and no comma, suggesting a missing argument separator.
-            Pattern funcMissingComma = Pattern.compile(
-                '\\b(IF|CASE|INCLUDES|EXCLUDES|LEFT|RIGHT|MID|ROUND|MOD|MAX|MIN|VALUE|TEXT|DATEVALUE|DATETIMEVALUE)'
-                + '\\s*\\([^,()]+\\s+[^,()\\s][^,()]*\\)'
-            );
-            if (funcMissingComma.matcher(upper).find()) {
+            if (FUNC_MISSING_COMMA.matcher(upper).find()) {
                 result.put('isValid',      false);
                 result.put('errorMessage',
                     'Possible missing comma inside a function call. '
@@ -313,8 +341,7 @@ public with sharing class REDU_FormulaBuilder_LCTRL {
             }
 
             // ── Check G: doubled / invalid comparison operators (==, =>, =<) ─
-            Pattern doubleEquals = Pattern.compile('==|=>|=<');
-            if (doubleEquals.matcher(normalized).find()) {
+            if (DOUBLE_EQUALS.matcher(normalized).find()) {
                 result.put('isValid',      false);
                 result.put('errorMessage',
                     'Invalid operator detected. Use = for equality and != or <> for not-equal. '
@@ -325,9 +352,6 @@ public with sharing class REDU_FormulaBuilder_LCTRL {
             // ── All checks passed ────────────────────────────────────────────
             return new REDU_LightningResponse(result);
 
-        } catch (QueryException qex) {
-            String errorMsg = REDU_ObjectSecurity_UTIL.handleQueryException(qex, false);
-            throw REDU_Exception_UTIL.auraException(errorMsg);
         } catch (Exception exp) {
             throw REDU_Exception_UTIL.auraException(exp.getMessage(), exp.getLineNumber(), null);
         }

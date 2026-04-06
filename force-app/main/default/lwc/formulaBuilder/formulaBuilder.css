@@ -1,16 +1,16 @@
 /*
- * @Author      WDCi ()
+ * @Author      WDCi (Zihern)
  * @Date        April 2026
  * @group       Formula Builder
  * @Description Styles for the formulaBuilder LWC.
  *              All class names are prefixed with formula-builder- per team convention.
- *              Organised in the same top-to-bottom order as the HTML template:
- *                1. Root / card chrome
+ *              Selectors are organised in the same top-to-bottom order as the HTML template:
+ *                1. Root / wrapper
  *                2. Spinner
  *                3. Card header actions
  *                4. VIEW MODE
- *                5. EDIT MODE — combobox row, target label, editor textarea, verify action
- *                6. Verify result banner (shared between inline and modal)
+ *                5. EDIT MODE — combobox row, target label, textarea
+ *                6. Verify result banner
  *                7. VERIFY MODAL
  *                8. Responsive overrides
  * @changehistory
@@ -28,7 +28,7 @@
     display: block;
 }
 
-/* ─── 2. Spinner ─────────────────────────────────────────────────────────── */
+/* ─── 2. Spinner overlay ─────────────────────────────────────────────────── */
 
 .formula-builder-spinner-container {
     position: fixed;
@@ -38,10 +38,6 @@
     align-items: center;
     justify-content: center;
     background-color: rgba(255, 255, 255, 0.5);
-}
-
-.formula-builder-spinner {
-    /* lightning-spinner handles its own positioning */
 }
 
 /* ─── 3. Card header actions ─────────────────────────────────────────────── */
@@ -54,27 +50,27 @@
 
 /* ─── 4. VIEW MODE ───────────────────────────────────────────────────────── */
 
-.formula-builder-view-body {
+.formula-builder-view {
     min-height: 4rem;
 }
 
-.formula-builder-view-row {
+.formula-builder-view__row {
     gap: 0.5rem;
 }
 
-/* Field label column ("Criteria") */
-.formula-builder-view-label-col {
-    padding-top: 0.125rem; /* visual alignment with the pre text */
+/* Field label column */
+.formula-builder-view__label-col {
+    padding-top: 0.125rem; /* visual alignment with the pre text baseline */
 }
 
-.formula-builder-view-label {
+.formula-builder-view__label {
     display: block;
     font-weight: 600;
     white-space: nowrap;
 }
 
 /* Formula value column — monospaced pre-formatted block */
-.formula-builder-view-formula {
+.formula-builder-view__pre {
     margin: 0;
     padding: 0.5rem 0.75rem;
     font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, Courier, monospace;
@@ -89,35 +85,37 @@
     overflow-x: auto;
 }
 
-/* Hint shown when targetObjectApiName / targetFieldApiName are not set */
-.formula-builder-unconfigured {
+/* Hint shown when targetObjectApiName / targetFieldApiName are not configured */
+.formula-builder-view__hint {
     font-style: italic;
 }
 
 /* ─── 5. EDIT MODE ───────────────────────────────────────────────────────── */
 
-.formula-builder-edit-body {
+.formula-builder-edit {
     display: flex;
     flex-direction: column;
     gap: 0.75rem;
 }
 
-/* ── 5a. Four-combobox insertion row ─ */
+/* ── 5a. Four-combobox insertion row ─────────────────────────────────────── */
 
-.formula-builder-combobox-row {
-    /* slds-grid handles horizontal layout; gap via slds-gutters_small */
-}
-
-.formula-builder-combobox-col {
-    /* Each column owns one combobox; SLDS grid sizes handle width */
+/* lightning-layout handles horizontal layout; padding via pull-to-boundary + layout-item */
+.formula-builder-combobox-item {
+    display: flex;
+    flex-direction: column;
 }
 
 .formula-builder-combobox {
-    /* Ensure comboboxes fill their column */
+    /* Ensure each combobox fills its layout-item column */
     display: block;
 }
 
-/* ── 5b. Formula target label ─ */
+.formula-builder-combobox__label {
+    color: #706e6b;
+}
+
+/* ── 5b. Formula target label ─────────────────────────────────────────────── */
 
 .formula-builder-target-label {
     color: #706e6b;
@@ -125,78 +123,47 @@
     letter-spacing: 0.01rem;
 }
 
-/* ── 5c. Formula editor textarea ─ */
-
-.formula-builder-editor-section {
+/* ── 5c. Formula editor textarea ──────────────────────────────────────────── */
+/*
+ * Note: lightning-textarea renders its inner <textarea> inside shadow DOM.
+ * These rules apply to the component host element only (block display, min-height).
+ * Inner typography (font-family, font-size, etc.) is controlled by SLDS design
+ * tokens and cannot be overridden from component-level CSS.
+ */
+.formula-builder-textarea {
     display: block;
-}
-
-.formula-builder-editor-textarea {
-    font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, Courier, monospace;
-    font-size: 0.875rem;
-    line-height: 1.6;
     min-height: 180px;
-    resize: vertical;
-    background-color: #fafaf9;
-    border: 1px solid #dddbda;
-    border-radius: 0.25rem;
-    padding: 0.5rem 0.75rem;
-    transition: border-color 0.15s ease, box-shadow 0.15s ease;
-    white-space: pre-wrap;
-    word-break: break-all;
 }
 
-.formula-builder-editor-textarea:focus {
-    outline: none;
-    border-color: #1b96ff;
-    box-shadow: 0 0 0 3px rgba(21, 137, 238, 0.25);
-    background-color: #ffffff;
-}
+/* ─── 6. Verify result banner ─────────────────────────────────────────────── */
 
-.formula-builder-editor-textarea:disabled {
-    background-color: #f3f3f3;
-    color: #706e6b;
-    cursor: not-allowed;
-}
-
-/* ── 5d. Verify Formula action row ─ */
-
-.formula-builder-verify-action {
-    display: flex;
-    align-items: center;
-}
-
-/* ─── 6. Verify result banner (shared: inline modal + any future inline use) */
-
-.formula-builder-verify-banner {
+.formula-builder-result {
     display: flex;
     align-items: flex-start;
     border-radius: 0.25rem;
     font-size: 0.8125rem;
-    padding: 0.5rem 0.75rem;
-    border: 1px solid transparent;
     line-height: 1.4;
     gap: 0.375rem;
 }
 
-.formula-builder-verify-banner--success {
+.formula-builder-result--success {
     background-color: #ecfbd4;
     border-color: #4bca81;
     color: #2e844a;
 }
 
-.formula-builder-verify-banner--error {
+.formula-builder-result--error {
     background-color: #fde9e9;
     border-color: #c23934;
     color: #a61c15;
 }
 
-.formula-builder-verify-icon {
+.formula-builder-result__icon {
     flex-shrink: 0;
     margin-top: 0.0625rem; /* fine-tune icon baseline alignment */
 }
 
-.formula-builder-verify-message {
+.formula-builder-result__text {
     flex: 1;
 }
 
@@ -204,31 +171,33 @@
 
 /*
  * The SLDS modal classes (slds-modal, slds-modal__container, etc.) provide the
- * structural layout and positioning.  The formula-builder-modal* classes layer
+ * structural layout and positioning. The formula-builder-modal* classes layer
  * on top for sizing and component-specific tweaks only.
  */
 
-.formula-builder-modal .formula-builder-modal-container {
-    /* Constrain modal width to a comfortable reading size */
+.formula-builder-modal .formula-builder-modal__container {
     max-width: 42rem;
 }
 
-.formula-builder-modal-body {
-    /* Ensure at least enough height for the input + result banner */
+.formula-builder-modal__body {
+    /* Ensure at least enough height for the record picker + result banner */
     min-height: 10rem;
 }
 
-.formula-builder-modal-hint {
+.formula-builder-modal__hint {
     color: #706e6b;
 }
 
-.formula-builder-modal-record-input {
+.formula-builder-modal__record-picker {
     display: block;
 }
 
-.formula-builder-backdrop {
-    /* SLDS slds-backdrop already handles z-index and dimming;
-       this class is present for component-scoped CSS to hook into if needed */
+.formula-builder-modal__verify-action {
+    display: flex;
+}
+
+.formula-builder-modal__result {
+    display: block;
 }
 
 /* ─── 8. Responsive overrides ────────────────────────────────────────────── */
@@ -236,19 +205,19 @@
 @media (max-width: 48rem) {
 
     /* Stack action buttons vertically on small screens */
-    .formula-builder-card-actions {
+    .formula-builder-header-actions {
         flex-direction: column;
         align-items: flex-end;
     }
 
-    /* Each combobox takes the full row width on very small screens */
-    .formula-builder-combobox-col {
+    /* Each combobox layout-item takes full row width on very small screens */
+    .formula-builder-combobox-item {
         margin-bottom: 0.5rem;
     }
 
     /* View mode: stack label above formula value */
-    .formula-builder-view-label-col,
-    .formula-builder-view-formula-col {
+    .formula-builder-view__label-col,
+    .formula-builder-view__formula-col {
         width: 100%;
         max-width: 100%;
         flex-basis: 100%;
