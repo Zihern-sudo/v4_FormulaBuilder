@@ -21,11 +21,13 @@ public with sharing class REDU_FormulaBuilder_LCTRL {
 
     /**
      * Matches a formula that STARTS with a binary operator used in infix style.
-     * AND/OR followed by a word boundary — NOT followed by '(' which would
-     * indicate the function form AND(...) / OR(...).
+     * AND/OR followed by a word boundary — NOT followed by optional whitespace
+     * then '(' which would indicate the function form AND(...) / OR(...).
+     * Negative lookahead (?!\\s*\\() excludes valid function-call forms such as
+     * AND(condition1, condition2) and OR(condition1, condition2).
      */
     private static final Pattern STARTS_WITH_BINARY = Pattern.compile(
-        '^(AND|OR)\\b'
+        '^(AND|OR)\\b(?!\\s*\\()'
     );
 
     /** Matches a formula that ends with a logical operator (trailing operator). */
