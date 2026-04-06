@@ -297,6 +297,19 @@
                                 class="formula-builder-textarea">
                             </lightning-textarea>
 
+                            <!-- ── Verify hint ──────────────────────────────── -->
+                            <p class="formula-builder-verify-hint
+                                      slds-text-body_small slds-text-color_weak
+                                      slds-m-top_x-small">
+                                <lightning-icon
+                                    icon-name="utility:info"
+                                    size="xx-small"
+                                    alternative-text="Info"
+                                    class="formula-builder-verify-hint__icon">
+                                </lightning-icon>
+                                Use <strong>Verify Formula</strong> to check syntax before saving.
+                            </p>
+
                         </div>
                     </template>
                     <!-- /EDIT MODE -->
@@ -410,18 +423,15 @@
                         onclick={handleVerifyClose}
                         class="slds-m-right_x-small">
                     </lightning-button>
-                    <!-- Only shown after the first auto-verify has produced a result -->
-                    <template if:true={hasVerifyModalResult}>
-                        <lightning-button
-                            label="Verify Again"
-                            variant="brand"
-                            icon-name="utility:refresh"
-                            icon-position="left"
-                            title="Re-run formula syntax verification"
-                            disabled={isLoading}
-                            onclick={handleReverifyOnclick}>
-                        </lightning-button>
-                    </template>
+                    <lightning-button
+                        label="Verify"
+                        variant="brand"
+                        icon-name="utility:check"
+                        icon-position="left"
+                        title="Run formula syntax verification"
+                        disabled={isLoading}
+                        onclick={handleVerifyRecord}>
+                    </lightning-button>
                 </footer>
 
             </div>

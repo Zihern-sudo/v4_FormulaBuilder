@@ -7,20 +7,19 @@
  *              current formula value with an Edit button; edit mode exposes four
  *              comboboxes (System Variables, Fields, Functions, Operators) that
  *              insert tokens at the current cursor position, a live-editable
- *              formula textarea, a Verify Formula modal backed by the Apex syntax
- *              checker, and an Update / Cancel action pair.
+ *              formula textarea, and an Update / Cancel / Verify Formula action pair.
+ *
+ *              Verification is opt-in via the Verify Formula modal — the Update
+ *              button is always available (not gated on verification) but the editor
+ *              shows a hint encouraging the user to verify before saving.  The modal
+ *              retains the record Id and last result between opens so the user can
+ *              correct a formula and click Verify without re-entering data.
  *
  *              All Apex calls are imperative. getObjectInfo wire populates the
  *              Fields combobox reactively from the configured object.
- *
- *              The Update button is disabled until the formula passes the Verify
- *              Formula modal syntax check (isValid = true). Editing the formula
- *              text resets the verified flag, requiring re-verification before
- *              the next save.
  * @changehistory
  * ISS-002768 2026-04-03 - Initial development of Formula Builder LWC JavaScript controller
- * ISS-002768 2026-04-06 - Verify Formula modal with auto-verify on record Id input;
- *                         Update button gated on valid verification
+ * ISS-002768 2026-04-06 - Verify Formula modal; verification opt-in; explicit Verify button
  */
 import { LightningElement, api, track, wire } from 'lwc';
 import { getObjectInfo }                       from 'lightning/uiObjectInfoApi';
@@ -189,14 +188,6 @@ export default class FormulaBuilder extends LightningElement {
      *              Set by _insertAtCursor; consumed and cleared in renderedCallback.
      */
     _pendingCursorPos = undefined;
-
-    /**
-     * @description True once the current formula text has been verified as
-     *              syntactically valid by the inline Apex check.  Reset to false
-     *              whenever the formula text changes, forcing re-verification
-     *              before the Update button becomes available again.
-     */
-    _formulaVerified = false;
 
     /** Cache-buster incremented by initCacheIdx to signal data reload */
     cacheIdx = 0;
@@ -401,12 +392,11 @@ export default class FormulaBuilder extends LightningElement {
 
     /**
      * @description Activates edit mode when the user clicks the Edit button.
-     *              Resets inline verify state so each edit session starts clean.
+     *              Clears any stale verify state from a previous edit session.
      */
     handleEditOnclick() {
         this.isEditMode        = true;
         this.isVerifyModalOpen = false;
-        this._formulaVerified  = false;
         this.verifyModalResult = null;
         this._verifyRecordId   = '';
         this.consoleLog('handleEditOnclick — edit mode activated');
@@ -414,13 +404,12 @@ export default class FormulaBuilder extends LightningElement {
 
     /**
      * @description Deactivates edit mode and reverts currentFormulaValue to the
-     *              last saved / loaded snapshot.  Resets inline verify state.
+     *              last saved / loaded snapshot.
      */
     handleCancelOnclick() {
         this.isEditMode           = false;
         this.isVerifyModalOpen    = false;
         this.currentFormulaValue  = this.originalFormulaValue;
-        this._formulaVerified     = false;
         this.verifyModalResult    = null;
         this._verifyRecordId      = '';
         this.consoleLog('handleCancelOnclick — reverted to original, edit mode deactivated');
@@ -463,14 +452,10 @@ export default class FormulaBuilder extends LightningElement {
      * @description Keeps currentFormulaValue in sync when the user edits the
      *              formula textarea directly.  lightning-textarea fires onchange
      *              on blur and exposes the value via event.detail.value.
-     *              Resets the verified flag so the Update button is disabled until
-     *              the formula is re-verified after each text change.
      * @param {Event} event onchange event from lightning-textarea
      */
     handleFormulaChange(event) {
         this.currentFormulaValue = event.detail.value;
-        this._formulaVerified    = false;
-        this.verifyModalResult   = null;
     }
 
     // ─── Combobox Insertion Handlers ─────────────────────────────────────────
@@ -550,38 +535,34 @@ export default class FormulaBuilder extends LightningElement {
     }
 
     /**
-     * @description Triggered when the user leaves the "Sample Record ID" input
-     *              inside the Verify modal (onchange fires on blur in LWC).
-     *              Stores the new value and immediately runs a fresh verification.
+     * @description Keeps _verifyRecordId in sync as the user types in the modal
+     *              record Id input.  Does NOT trigger verification — the user must
+     *              click the Verify button to run the check explicitly.
      * @param {Event} event onchange event from lightning-input
      */
     handleVerifyRecordInput(event) {
         this._verifyRecordId = (event.detail.value || '').trim();
         this.consoleLog('handleVerifyRecordInput', { recordId: this._verifyRecordId });
-        this._runVerify();
     }
 
     /**
      * @description Triggered by the "Verify" button in the modal footer.
-     *              Re-runs verification with the existing record Id so the user
-     *              does not need to clear and re-type it after correcting the formula.
+     *              Runs (or re-runs) the syntax check with the current formula text
+     *              and the record Id already stored in _verifyRecordId.
      */
-    handleReverifyOnclick() {
-        this.consoleLog('handleReverifyOnclick — re-verifying with existing record Id',
-            { recordId: this._verifyRecordId });
+    handleVerifyRecord() {
+        this.consoleLog('handleVerifyRecord', { recordId: this._verifyRecordId });
         this._runVerify();
     }
 
     /**
-     * @description Calls verifyFormula() imperatively and updates verifyModalResult
-     *              and _formulaVerified.  Shared by handleVerifyRecordInput and
-     *              handleReverifyOnclick so the Apex call is never duplicated.
+     * @description Calls verifyFormula() imperatively and updates verifyModalResult.
+     *              Called by the explicit Verify button inside the modal.
      *              The record Id is optional — Apex performs syntax-only checks
      *              regardless of whether a valid Id is supplied.
      */
     _runVerify() {
         this.verifyModalResult = null;
-        this._formulaVerified  = false;
         this.toggleSpinner(1);
 
         apexVerifyFormula({
@@ -591,17 +572,15 @@ export default class FormulaBuilder extends LightningElement {
         })
         .then(response => {
             const res = response.responseData ? JSON.parse(response.responseData) : {};
-            this._formulaVerified  = res.isValid === true;
             this.verifyModalResult = {
                 isValid : res.isValid,
                 message : res.isValid
-                    ? 'Formula syntax is valid. You may now close and save.'
+                    ? 'Formula syntax is valid.'
                     : res.errorMessage
             };
             this.consoleLog('_runVerify — result', this.verifyModalResult);
         })
         .catch(error => {
-            this._formulaVerified  = false;
             this.verifyModalResult = null;
             this.consoleLog('_runVerify — error', error);
             promptError(this, getErrorMessage(error));
@@ -679,13 +658,12 @@ export default class FormulaBuilder extends LightningElement {
 
     /**
      * @description True when the Update button should be disabled.
-     *              The button is disabled until the formula has been explicitly
-     *              verified as valid by the inline Apex syntax check, or while
-     *              any async operation is in flight.
+     *              Disabled only while an async operation is in flight — verification
+     *              is opt-in and does not gate the Update action.
      * @return {boolean}
      */
     get isUpdateDisabled() {
-        return !this._formulaVerified || this.isLoading;
+        return this.isLoading;
     }
 
     /**

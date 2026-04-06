@@ -137,6 +137,20 @@
     min-height: 180px;
 }
 
+/* ── 5d. Verify-before-saving hint ───────────────────────────────────────── */
+
+.formula-builder-verify-hint {
+    display: flex;
+    align-items: center;
+    gap: 0.25rem;
+    color: #706e6b;
+    font-style: italic;
+}
+
+.formula-builder-verify-hint__icon {
+    flex-shrink: 0;
+}
+
 /* ─── 6. Verify result banner ─────────────────────────────────────────────── */
 
 .formula-builder-result {
