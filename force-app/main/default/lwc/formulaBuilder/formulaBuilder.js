@@ -416,19 +416,42 @@ export default class FormulaBuilder extends LightningElement {
     }
 
     /**
-     * @description Saves the current formula value to the record via
-     *              updateFieldValue().  On success: updates originalFormulaValue,
-     *              exits edit mode, and shows a success toast.  On error: stays
-     *              in edit mode and shows an error toast.
+     * @description Validates the formula syntax via Apex before persisting.
+     *              If the syntax check fails the save is aborted and an error
+     *              toast is shown so the user can correct the formula first.
+     *              On successful validation + save: updates originalFormulaValue,
+     *              exits edit mode, and shows a success toast.
      */
     handleUpdateOnclick() {
         this.toggleSpinner(1);
 
-        apexUpdateFieldValue({
+        // ── Step 1: syntax check ─────────────────────────────────────────────
+        apexVerifyFormula({
+            formula       : this.currentFormulaValue,
             objectApiName : this.targetObjectApiName,
-            fieldApiName  : this.targetFieldApiName,
-            recordId      : this.recordId,
-            formulaValue  : this.currentFormulaValue
+            recordId      : null   // syntax-only; no record context needed here
+        })
+        .then(verifyResponse => {
+            const res = verifyResponse.responseData
+                ? JSON.parse(verifyResponse.responseData) : {};
+
+            if (!res.isValid) {
+                // Block the save — surface the syntax error as a toast
+                promptError(
+                    this,
+                    `Formula has syntax errors and cannot be saved. ${res.errorMessage || ''}`
+                );
+                this.consoleLog('handleUpdateOnclick — blocked by invalid formula', res);
+                return Promise.reject({ _blocked: true });
+            }
+
+            // ── Step 2: persist ──────────────────────────────────────────────
+            return apexUpdateFieldValue({
+                objectApiName : this.targetObjectApiName,
+                fieldApiName  : this.targetFieldApiName,
+                recordId      : this.recordId,
+                formulaValue  : this.currentFormulaValue
+            });
         })
         .then(() => {
             this.originalFormulaValue = this.currentFormulaValue;
@@ -438,6 +461,8 @@ export default class FormulaBuilder extends LightningElement {
             this.consoleLog('handleUpdateOnclick — updated successfully');
         })
         .catch(error => {
+            // _blocked errors have already been toasted above; skip re-toasting
+            if (error && error._blocked) { return; }
             this.consoleLog('handleUpdateOnclick — error (staying in edit mode)', error);
             promptError(this, getErrorMessage(error));
         })
