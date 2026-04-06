@@ -158,6 +158,9 @@ export default class FormulaBuilder extends LightningElement {
     @track _selectedFunction       = '';
     @track _selectedOperator       = '';
 
+    /** Record Id selected in the Verify modal's record picker */
+    @track _verifyRecordId = '';
+
     // ─── Private State ────────────────────────────────────────────────────────
 
     /** Depth counter for nested async calls — spinner shows when > 0 */
@@ -165,6 +168,13 @@ export default class FormulaBuilder extends LightningElement {
 
     /** Token returned by registerRefreshHandler */
     _refreshHandler;
+
+    /**
+     * @description Set to true at the end of connectedCallback once all
+     *              synchronous setup is complete.  Gates the main template
+     *              via the isInitSuccess getter.
+     */
+    _initComplete = false;
 
     /**
      * @description Pending cursor position to restore after a combobox insertion
@@ -243,6 +253,9 @@ export default class FormulaBuilder extends LightningElement {
             allowEdit           : this.allowEdit,
             enableDebugMode     : this.enableDebugMode
         });
+
+        // Mark synchronous init complete — gates the isInitSuccess getter
+        this._initComplete = true;
     }
 
     /**
@@ -256,13 +269,17 @@ export default class FormulaBuilder extends LightningElement {
      * @description After each reactive re-render triggered by a combobox
      *              insertion, restores the cursor to the position immediately
      *              after the inserted token.
+     *              Only operates on native <textarea> elements — lightning-textarea
+     *              wraps its inner element in shadow DOM which is inaccessible,
+     *              so cursor restoration is a no-op for that component.
      */
     renderedCallback() {
         if (this._pendingCursorPos !== undefined) {
-            const textarea = this.template.querySelector('[data-id="formulaTextarea"]');
-            if (textarea) {
-                textarea.focus();
-                textarea.setSelectionRange(this._pendingCursorPos, this._pendingCursorPos);
+            const el = this.template.querySelector('[data-id="formulaTextarea"]');
+            // selectionStart is a number only on native <textarea> / <input> elements
+            if (el && typeof el.selectionStart === 'number') {
+                el.focus();
+                el.setSelectionRange(this._pendingCursorPos, this._pendingCursorPos);
             }
             this._pendingCursorPos = undefined;
         }
@@ -422,12 +439,13 @@ export default class FormulaBuilder extends LightningElement {
     // ─── Formula Textarea Handler ─────────────────────────────────────────────
 
     /**
-     * @description Keeps currentFormulaValue in sync as the user types directly
-     *              in the formula textarea.
-     * @param {Event} event oninput event from the formula textarea
+     * @description Keeps currentFormulaValue in sync when the user edits the
+     *              formula textarea directly.  lightning-textarea fires onchange
+     *              on blur and exposes the value via event.detail.value.
+     * @param {Event} event onchange event from lightning-textarea
      */
-    handleFormulaInput(event) {
-        this.currentFormulaValue = event.target.value;
+    handleFormulaChange(event) {
+        this.currentFormulaValue = event.detail.value;
     }
 
     // ─── Combobox Insertion Handlers ─────────────────────────────────────────
@@ -437,12 +455,12 @@ export default class FormulaBuilder extends LightningElement {
      *              name at the current cursor position and resets the combobox.
      * @param {Event} event onchange event from the System Variables combobox
      */
-    handleSystemVariableChange(event) {
+    handleSystemVariableSelect(event) {
         const value = event.detail.value;
         if (!value) { return; }
         this._insertAtCursor(value);
         this._selectedSystemVariable = '';
-        this.consoleLog('handleSystemVariableChange', { inserted: value });
+        this.consoleLog('handleSystemVariableSelect', { inserted: value });
     }
 
     /**
@@ -450,12 +468,12 @@ export default class FormulaBuilder extends LightningElement {
      *              position and resets the combobox.
      * @param {Event} event onchange event from the Fields combobox
      */
-    handleFieldChange(event) {
+    handleFieldSelect(event) {
         const value = event.detail.value;
         if (!value) { return; }
         this._insertAtCursor(value);
         this._selectedField = '';
-        this.consoleLog('handleFieldChange', { inserted: value });
+        this.consoleLog('handleFieldSelect', { inserted: value });
     }
 
     /**
@@ -463,12 +481,12 @@ export default class FormulaBuilder extends LightningElement {
      *              at the current cursor position and resets the combobox.
      * @param {Event} event onchange event from the Functions combobox
      */
-    handleFunctionChange(event) {
+    handleFunctionSelect(event) {
         const value = event.detail.value;
         if (!value) { return; }
         this._insertAtCursor(value);
         this._selectedFunction = '';
-        this.consoleLog('handleFunctionChange', { inserted: value });
+        this.consoleLog('handleFunctionSelect', { inserted: value });
     }
 
     /**
@@ -476,53 +494,58 @@ export default class FormulaBuilder extends LightningElement {
      *              position and resets the combobox.
      * @param {Event} event onchange event from the Operators combobox
      */
-    handleOperatorChange(event) {
+    handleOperatorSelect(event) {
         const value = event.detail.value;
         if (!value) { return; }
         this._insertAtCursor(value);
         this._selectedOperator = '';
-        this.consoleLog('handleOperatorChange', { inserted: value });
+        this.consoleLog('handleOperatorSelect', { inserted: value });
     }
 
     // ─── Verify Formula Modal Handlers ────────────────────────────────────────
 
     /**
-     * @description Opens the Verify Formula modal and clears any previous result.
+     * @description Opens the Verify Formula modal and resets all previous
+     *              state (selected record and result) so each session starts clean.
      */
     handleVerifyOnclick() {
         this.isVerifyModalOpen = true;
         this.verifyModalResult = null;
+        this._verifyRecordId   = '';
         this.consoleLog('handleVerifyOnclick — modal opened');
     }
 
     /**
-     * @description Closes the Verify Formula modal without saving.
+     * @description Closes the Verify Formula modal and clears its state.
      */
     handleVerifyClose() {
         this.isVerifyModalOpen = false;
         this.verifyModalResult = null;
+        this._verifyRecordId   = '';
         this.consoleLog('handleVerifyClose — modal closed');
     }
 
     /**
-     * @description Receives a sample record selection from the modal's record
-     *              picker, calls verifyFormula() imperatively with the current
-     *              formula and the selected record as context, and stores the
-     *              result for display inside the modal.
-     *
-     *              Supports both lightning-record-picker (event.detail.recordId)
-     *              and lightning-combobox / custom (event.detail.value) event
-     *              shapes so the modal template can use either input pattern.
-     *
-     * @param {Event} event Custom or standard change event carrying the recordId
+     * @description Stores the record Id selected by the user in the modal's
+     *              lightning-record-picker and clears any stale verify result
+     *              so the UI is ready for a fresh verification call.
+     * @param {Event} event onchange event from lightning-record-picker;
+     *                      event.detail.recordId is null when the picker is cleared
      */
-    handleVerifyRecord(event) {
-        // Normalise across lightning-record-picker and plain-combobox event shapes
-        const sampleRecordId =
-            (event.detail && (event.detail.recordId || event.detail.value)) || '';
+    handleVerifyRecordSelect(event) {
+        this._verifyRecordId   = event.detail.recordId || '';
+        this.verifyModalResult = null;
+        this.consoleLog('handleVerifyRecordSelect', { recordId: this._verifyRecordId });
+    }
 
-        if (!sampleRecordId) {
-            this.verifyModalResult = null;
+    /**
+     * @description Triggered by the "Verify" button inside the modal.
+     *              Calls verifyFormula() imperatively using the record Id stored
+     *              by handleVerifyRecordSelect and displays the result inline.
+     */
+    handleVerifyRecord() {
+        if (!this._verifyRecordId) {
+            promptWarning(this, 'Please select a sample record before verifying.');
             return;
         }
 
@@ -532,7 +555,7 @@ export default class FormulaBuilder extends LightningElement {
         apexVerifyFormula({
             formula       : this.currentFormulaValue,
             objectApiName : this.targetObjectApiName,
-            recordId      : sampleRecordId
+            recordId      : this._verifyRecordId
         })
         .then(response => {
             const res = response.data;
@@ -600,16 +623,27 @@ export default class FormulaBuilder extends LightningElement {
     }
 
     /**
-     * @description True when the Edit button should be rendered (allowEdit prop
-     *              is set and the component is not already in edit mode).
+     * @description True once connectedCallback has completed synchronous setup.
+     *              Used by the template to gate the main card rendering until the
+     *              component is fully initialised (spinner still shows independently).
      * @return {boolean}
      */
-    get showEditButton() {
-        return this.allowEdit && !this.isEditMode;
+    get isInitSuccess() {
+        return this._initComplete;
     }
 
     /**
-     * @description True when the Verify Formula modal contains a result to display.
+     * @description True when the Edit button should be rendered.
+     *              Requires allowEdit = true, isConfigured = true, and the
+     *              component must not already be in edit mode.
+     * @return {boolean}
+     */
+    get showEditButton() {
+        return this.allowEdit && this.isConfigured && !this.isEditMode;
+    }
+
+    /**
+     * @description True when the Verify modal contains a result to display.
      * @return {boolean}
      */
     get hasVerifyModalResult() {
@@ -617,26 +651,21 @@ export default class FormulaBuilder extends LightningElement {
     }
 
     /**
-     * @description CSS class string for the verify-result banner inside the
-     *              modal — toggles between success (green) and error (red) states.
-     * @return {string}
+     * @description True when the last verifyFormula call returned isValid = true.
+     *              Used by if:true in the template to show the success block.
+     * @return {boolean}
      */
-    get verifyModalResultClass() {
-        const base = 'formula-builder-verify-banner slds-box slds-p-around_small slds-m-top_small';
-        if (!this.verifyModalResult) { return base; }
-        return this.verifyModalResult.isValid
-            ? `${base} formula-builder-verify-banner--success`
-            : `${base} formula-builder-verify-banner--error`;
+    get verifyModalIsValid() {
+        return !!(this.verifyModalResult && this.verifyModalResult.isValid);
     }
 
     /**
-     * @description SLDS icon name for the verify-result banner.
-     * @return {string}
+     * @description True when a result exists and isValid = false.
+     *              Used by if:true in the template to show the error block.
+     * @return {boolean}
      */
-    get verifyModalResultIcon() {
-        return this.verifyModalResult && this.verifyModalResult.isValid
-            ? 'utility:success'
-            : 'utility:error';
+    get verifyModalIsInvalid() {
+        return this.hasVerifyModalResult && !this.verifyModalResult.isValid;
     }
 
     /**
@@ -663,16 +692,22 @@ export default class FormulaBuilder extends LightningElement {
      * @param {string} token The text to insert (e.g. ' AND ', 'IF(', ' + ')
      */
     _insertAtCursor(token) {
-        const textarea = this.template.querySelector('[data-id="formulaTextarea"]');
-        const current  = this.currentFormulaValue || '';
+        const el      = this.template.querySelector('[data-id="formulaTextarea"]');
+        const current = this.currentFormulaValue || '';
 
-        if (textarea) {
-            const rawStart = textarea.selectionStart;
-            const rawEnd   = textarea.selectionEnd;
+        // selectionStart is a numeric property only on native <textarea> / <input>
+        // elements.  lightning-textarea wraps its inner element in shadow DOM that
+        // is inaccessible from the parent component, so typeof check distinguishes
+        // between the two cases and prevents "NaN"-based substring corruption.
+        const hasNativeCursor = el && typeof el.selectionStart === 'number';
 
-            // When both start and end are 0 and the formula has existing content
-            // the textarea likely has no active cursor (never focused); treat
-            // this as "append to end" to avoid silently inserting at position 0.
+        if (hasNativeCursor) {
+            const rawStart = el.selectionStart;
+            const rawEnd   = el.selectionEnd;
+
+            // If both positions are 0 and the formula already has content the
+            // textarea has probably never received focus — append to end instead
+            // of silently inserting at the very beginning.
             const atStart = rawStart === 0 && rawEnd === 0 && current.length > 0;
             const start   = atStart ? current.length : rawStart;
             const end     = atStart ? current.length : rawEnd;
@@ -680,9 +715,9 @@ export default class FormulaBuilder extends LightningElement {
             this.currentFormulaValue = current.substring(0, start) + token + current.substring(end);
             this._pendingCursorPos   = start + token.length;
         } else {
-            // Textarea not in DOM (e.g. view mode) — append to end
+            // lightning-textarea, view-mode, or no element in DOM — append to end
             this.currentFormulaValue = current + token;
-            this._pendingCursorPos   = current.length + token.length;
+            this._pendingCursorPos   = undefined; // no cursor to restore
         }
     }
 

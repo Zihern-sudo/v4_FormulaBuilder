@@ -17,29 +17,39 @@
  * ISS-002768 2026-04-03 - Initial development of Formula Builder LWC styles
  */
 
-/* ─── 1. Root / card chrome ──────────────────────────────────────────────── */
+/* ─── 1. Root / wrapper ──────────────────────────────────────────────────── */
 
-.formula-builder-root {
+.formula-builder-wrapper {
     display: block;
     position: relative;
 }
 
-/* ─── 2. Spinner overlay ─────────────────────────────────────────────────── */
-
-.formula-builder-spinner {
-    position: absolute;
-    inset: 0;             /* top/right/bottom/left: 0 shorthand */
-    z-index: 100;
-    background-color: rgba(255, 255, 255, 0.6);
-    border-radius: 0.25rem;
+.formula-builder-card {
+    display: block;
 }
 
-/* ─── 3. Card header action slot ─────────────────────────────────────────── */
+/* ─── 2. Spinner ─────────────────────────────────────────────────────────── */
 
-.formula-builder-card-actions {
+.formula-builder-spinner-container {
+    position: fixed;
+    inset: 0;
+    z-index: 9999;
     display: flex;
     align-items: center;
-    gap: 0.5rem;
+    justify-content: center;
+    background-color: rgba(255, 255, 255, 0.5);
+}
+
+.formula-builder-spinner {
+    /* lightning-spinner handles its own positioning */
+}
+
+/* ─── 3. Card header actions ─────────────────────────────────────────────── */
+
+.formula-builder-header-actions {
+    display: flex;
+    align-items: center;
+    gap: 0.375rem;
 }
 
 /* ─── 4. VIEW MODE ───────────────────────────────────────────────────────── */
