@@ -24,14 +24,16 @@ public with sharing class REDU_FormulaBuilder_LCTRL {
      * Requires whitespace after AND/OR so that the valid function-call forms
      * AND(...) and OR(...) are not matched — those are immediately followed by
      * '(' with no whitespace, so they cannot match '\s+'.
+     * Also matches && or || at the very start (no left operand).
      */
     private static final Pattern STARTS_WITH_BINARY = Pattern.compile(
-        '^(AND|OR)\\s+'
+        '^((AND|OR)\\s+|&&|\\|\\|)'
     );
 
-    /** Matches a formula that ends with a logical operator (trailing operator). */
+    /** Matches a formula that ends with a logical operator (trailing operator).
+     *  Covers word-form AND/OR/NOT as well as symbolic && and || operators. */
     private static final Pattern ENDS_WITH_OP = Pattern.compile(
-        '\\b(AND|OR|NOT)\\s*$'
+        '(\\b(AND|OR|NOT)|&&|\\|\\|)\\s*$'
     );
 
     /**
@@ -221,43 +223,49 @@ public with sharing class REDU_FormulaBuilder_LCTRL {
             // ─────────────────────────────────────────────────────────────────
             // PHASE 1: String-literal-aware single-pass scan
             //
-            // Rules for Salesforce formula string literals:
-            //   • A string literal begins and ends with a single quote character (').
-            //   • Two consecutive single quotes inside a string ('') represent an
-            //     escaped single quote and do NOT close the string.
-            //   • Any character — including (, ), AND, OR — inside a string literal
-            //     is part of the string value and must be ignored by syntax checks.
+            // Salesforce formula string literals may use EITHER quote style:
+            //   • Single-quoted:  'text value'   ('' = escaped single quote inside)
+            //   • Double-quoted:  "text value"   ("" = escaped double quote inside)
+            // A quote of one style inside a literal of the other style is treated
+            // as ordinary content and does NOT open or close a string.
+            // Any character — including (, ), AND, OR — inside a string literal
+            // is part of the string value and must be ignored by syntax checks.
             // ─────────────────────────────────────────────────────────────────
 
-            Boolean      insideString  = false;
-            Integer      parenDepth    = 0;
-            Integer      openQuotePos  = -1; // 1-based position of the unclosed opening quote
-            List<String> strippedChars = new List<String>();
+            Boolean      insideString    = false;
+            String       stringQuoteChar = null; // '\'' or '"' — which quote opened the string
+            Integer      parenDepth      = 0;
+            Integer      openQuotePos    = -1; // 1-based position of the unclosed opening quote
+            List<String> strippedChars   = new List<String>();
 
             for (Integer i = 0; i < trimmed.length(); i++) {
                 String ch = trimmed.substring(i, i + 1);
 
-                if (ch == '\'') {
-                    if (insideString) {
-                        // Two consecutive single quotes inside a string = escaped literal quote.
-                        // Consume both and stay inside the string.
-                        if (i + 1 < trimmed.length() && trimmed.substring(i + 1, i + 2) == '\'') {
+                if (insideString) {
+                    // Inside a string literal — only the MATCHING closing quote ends it.
+                    if (ch == stringQuoteChar) {
+                        // Two consecutive same-quotes = escaped quote; stay inside the string.
+                        if (i + 1 < trimmed.length() && trimmed.substring(i + 1, i + 2) == stringQuoteChar) {
                             i++; // skip the second quote of the escape pair
                             continue;
                         }
-                        // Otherwise this is the closing quote.
-                        insideString = false;
-                        openQuotePos = -1;
+                        // Otherwise this is the closing quote — exit string context.
+                        insideString    = false;
+                        stringQuoteChar = null;
+                        openQuotePos    = -1;
                         // Represent the entire string literal as a single space placeholder
                         // so Phase 2 patterns see a neutral token rather than string content.
                         strippedChars.add(' ');
-                    } else {
-                        // Opening quote — enter string context.
-                        insideString = true;
-                        openQuotePos = i + 1; // 1-based for the error message
                     }
+                    // All other characters inside a string are intentionally skipped.
 
-                } else if (!insideString) {
+                } else if (ch == '\'' || ch == '"') {
+                    // Opening quote — enter string context, remember which quote style.
+                    insideString    = true;
+                    stringQuoteChar = ch;
+                    openQuotePos    = i + 1; // 1-based for the error message
+
+                } else {
                     // Outside a string: track parenthesis depth and collect for Phase 2.
                     if (ch == '(') {
                         parenDepth++;
@@ -272,17 +280,16 @@ public with sharing class REDU_FormulaBuilder_LCTRL {
                     }
                     strippedChars.add(ch);
                 }
-                // Characters inside a string literal are intentionally excluded from
-                // strippedChars — they are part of the string value, not formula syntax.
             }
 
             // ── Check A: unclosed string literal ────────────────────────────
             if (insideString) {
+                String quoteType = (stringQuoteChar == '"') ? 'double' : 'single';
                 result.put('isValid',      false);
                 result.put('errorMessage',
-                    'Unclosed string literal: the single quote at position ' + openQuotePos +
-                    ' was never closed. Ensure every string value is wrapped in a matching pair' +
-                    ' of single quotes (use \'\' to represent a literal single quote inside a string).');
+                    'Unclosed string literal: the ' + quoteType + ' quote at position ' + openQuotePos +
+                    ' was never closed. Ensure every string value is wrapped in a matching pair of ' +
+                    quoteType + ' quotes.');
                 return new REDU_LightningResponse(true, 'Verification Result', JSON.serialize(result));
             }
 

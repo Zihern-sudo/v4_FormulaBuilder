@@ -25,8 +25,8 @@ import { LightningElement, api, track, wire } from 'lwc';
 import { getObjectInfo }                       from 'lightning/uiObjectInfoApi';
 import { registerRefreshHandler, unregisterRefreshHandler } from 'lightning/refresh';
 
-import { promptSuccess, promptError } from 'c/toasterUtil';
-import { getErrorMessage, logInfo }                  from 'c/loggingUtil';
+import { ShowToastEvent }    from 'lightning/platformShowToastEvent';
+import { getErrorMessage, logInfo } from 'c/loggingUtil';
 import { initCacheIdx }                              from 'c/lwcUtil';
 
 import apexGetFieldValue      from '@salesforce/apex/REDU_FormulaBuilder_LCTRL.getFieldValue';
@@ -381,7 +381,7 @@ export default class FormulaBuilder extends LightningElement {
         })
         .catch(error => {
             this.consoleLog('_loadFieldValue — error', error);
-            promptError(this, getErrorMessage(error));
+            this._showToast('error', 'Load Error', getErrorMessage(error));
         })
         .finally(() => {
             this.toggleSpinner(-1);
@@ -437,9 +437,10 @@ export default class FormulaBuilder extends LightningElement {
 
             if (!res.isValid) {
                 // Block the save — surface the syntax error as a toast
-                promptError(
-                    this,
-                    `Formula has syntax errors and cannot be saved. ${res.errorMessage || ''}`
+                this._showToast(
+                    'error',
+                    'Formula Syntax Error',
+                    `Cannot save — ${res.errorMessage || 'formula syntax is invalid.'}`
                 );
                 this.consoleLog('handleUpdateOnclick — blocked by invalid formula', res);
                 return Promise.reject({ _blocked: true });
@@ -457,14 +458,14 @@ export default class FormulaBuilder extends LightningElement {
             this.originalFormulaValue = this.currentFormulaValue;
             this.isEditMode           = false;
             this.cacheIdx             = initCacheIdx(this.cacheIdx);
-            promptSuccess(this, 'Formula updated successfully.');
+            this._showToast('success', 'Success', 'Formula updated successfully.');
             this.consoleLog('handleUpdateOnclick — updated successfully');
         })
         .catch(error => {
             // _blocked errors have already been toasted above; skip re-toasting
             if (error && error._blocked) { return; }
             this.consoleLog('handleUpdateOnclick — error (staying in edit mode)', error);
-            promptError(this, getErrorMessage(error));
+            this._showToast('error', 'Save Error', getErrorMessage(error));
         })
         .finally(() => {
             this.toggleSpinner(-1);
@@ -608,7 +609,7 @@ export default class FormulaBuilder extends LightningElement {
         .catch(error => {
             this.verifyModalResult = null;
             this.consoleLog('_runVerify — error', error);
-            promptError(this, getErrorMessage(error));
+            this._showToast('error', 'Verify Error', getErrorMessage(error));
         })
         .finally(() => {
             this.toggleSpinner(-1);
@@ -618,11 +619,17 @@ export default class FormulaBuilder extends LightningElement {
     // ─── Refresh Handler ─────────────────────────────────────────────────────
 
     /**
-     * @description Invoked by lightning/refresh (e.g. after a sibling component
-     *              saves the record).  Reloads the formula value if configured.
+     * @description Reloads the formula value and resets all combobox selections
+     *              back to the blank placeholder.  Called both by the Refresh
+     *              icon button in the card header and by lightning/refresh.
      */
     handleRefresh() {
-        this.consoleLog('handleRefresh — refreshing formula value');
+        this.consoleLog('handleRefresh — refreshing formula value and resetting selections');
+        // Reset all insertion-combobox selections to blank
+        this._selectedSystemVariable = '';
+        this._selectedField          = '';
+        this._selectedFunction       = '';
+        this._selectedOperator       = '';
         if (this.isConfigured) {
             this._loadFieldValue();
         }
@@ -768,6 +775,23 @@ export default class FormulaBuilder extends LightningElement {
             this.currentFormulaValue = current + token;
             this._pendingCursorPos   = undefined; // no cursor to restore
         }
+    }
+
+    /**
+     * @description Dispatches a Lightning ShowToastEvent with auto-dismiss.
+     *              mode='pester' causes the platform to auto-close the toast
+     *              after ~3 s so it never gets stuck on screen.
+     * @param {'success'|'error'|'warning'|'info'} variant
+     * @param {string} title   Bold heading shown at the top of the toast
+     * @param {string} message Detail text shown below the title
+     */
+    _showToast(variant, title, message) {
+        this.dispatchEvent(new ShowToastEvent({
+            title,
+            message,
+            variant,
+            mode : 'pester'   // auto-dismiss — never sticks on screen
+        }));
     }
 
     /**
