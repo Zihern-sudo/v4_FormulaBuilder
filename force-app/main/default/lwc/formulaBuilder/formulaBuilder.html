@@ -211,20 +211,15 @@
                                         padding="around-small"
                                         class="formula-builder-combobox-item">
                                         <lightning-combobox
-                                            label=""
+                                            label="System Variables"
+                                            variant="label-stacked"
                                             placeholder="Select an Option"
                                             options={systemVariableOptions}
                                             value={_selectedSystemVariable}
                                             onchange={handleSystemVariableSelect}
                                             disabled={isLoading}
-                                            class="formula-builder-combobox"
-                                            field-level-help="Insert a system variable or Custom Metadata Type">
+                                            class="formula-builder-combobox">
                                         </lightning-combobox>
-                                        <p class="formula-builder-combobox__label
-                                                  slds-text-body_small slds-text-color_weak
-                                                  slds-m-top_xx-small slds-text-align_center">
-                                            System Variables
-                                        </p>
                                     </lightning-layout-item>
 
                                     <!-- Combobox 2: Fields (only if isConfigured) -->
@@ -234,20 +229,15 @@
                                             padding="around-small"
                                             class="formula-builder-combobox-item">
                                             <lightning-combobox
-                                                label=""
+                                                label="Fields"
+                                                variant="label-stacked"
                                                 placeholder="Select an Option"
                                                 options={fieldOptions}
                                                 value={_selectedField}
                                                 onchange={handleFieldSelect}
                                                 disabled={isLoading}
-                                                class="formula-builder-combobox"
-                                                field-level-help="Insert a field from the current object">
+                                                class="formula-builder-combobox">
                                             </lightning-combobox>
-                                            <p class="formula-builder-combobox__label
-                                                      slds-text-body_small slds-text-color_weak
-                                                      slds-m-top_xx-small slds-text-align_center">
-                                                Fields
-                                            </p>
                                         </lightning-layout-item>
                                     </template>
 
@@ -257,20 +247,15 @@
                                         padding="around-small"
                                         class="formula-builder-combobox-item">
                                         <lightning-combobox
-                                            label=""
+                                            label="Functions"
+                                            variant="label-stacked"
                                             placeholder="Select an Option"
                                             options={functionOptions}
                                             value={_selectedFunction}
                                             onchange={handleFunctionSelect}
                                             disabled={isLoading}
-                                            class="formula-builder-combobox"
-                                            field-level-help="Insert a formula function">
+                                            class="formula-builder-combobox">
                                         </lightning-combobox>
-                                        <p class="formula-builder-combobox__label
-                                                  slds-text-body_small slds-text-color_weak
-                                                  slds-m-top_xx-small slds-text-align_center">
-                                            Functions
-                                        </p>
                                     </lightning-layout-item>
 
                                     <!-- Combobox 4: Operators -->
@@ -279,20 +264,15 @@
                                         padding="around-small"
                                         class="formula-builder-combobox-item">
                                         <lightning-combobox
-                                            label=""
+                                            label="Operators"
+                                            variant="label-stacked"
                                             placeholder="Select an Option"
                                             options={operatorOptions}
                                             value={_selectedOperator}
                                             onchange={handleOperatorSelect}
                                             disabled={isLoading}
-                                            class="formula-builder-combobox"
-                                            field-level-help="Insert a comparison or logical operator">
+                                            class="formula-builder-combobox">
                                         </lightning-combobox>
-                                        <p class="formula-builder-combobox__label
-                                                  slds-text-body_small slds-text-color_weak
-                                                  slds-m-top_xx-small slds-text-align_center">
-                                            Operators
-                                        </p>
                                     </lightning-layout-item>
 
                                 </lightning-layout>
@@ -309,7 +289,8 @@
                             <!-- ── Row 3: Formula textarea ─────────────────── -->
                             <lightning-textarea
                                 data-id="formulaTextarea"
-                                label=""
+                                label="Formula Editor"
+                                variant="label-hidden"
                                 value={currentFormulaValue}
                                 onchange={handleFormulaChange}
                                 rows="10"
@@ -373,29 +354,29 @@
                     <!-- Hint text -->
                     <p class="formula-builder-modal__hint
                               slds-text-body_small slds-text-color_weak slds-m-bottom_medium">
-                        Select a sample record from
-                        <strong>{targetObjectApiName}</strong> to verify the
-                        formula syntax in context. Only syntax is checked —
-                        the formula result is <em>not</em> evaluated.
+                        Optionally paste a sample record Id to include context in the check.
+                        Syntax is always validated — the formula result is <em>not</em> evaluated.
                     </p>
 
-                    <!-- Record picker: onchange stores recordId in _verifyRecordId -->
-                    <lightning-record-picker
-                        label="Sample Record"
-                        placeholder="Search records…"
-                        object-api-name={targetObjectApiName}
-                        onchange={handleVerifyRecordSelect}
-                        class="formula-builder-modal__record-picker">
-                    </lightning-record-picker>
+                    <!-- Text input: stores typed record Id in _verifyRecordId -->
+                    <lightning-input
+                        type="text"
+                        label="Sample Record ID (optional)"
+                        placeholder="e.g. a0B000000000001EAA"
+                        value={_verifyRecordId}
+                        onchange={handleVerifyRecordInput}
+                        disabled={isLoading}
+                        class="formula-builder-modal__record-input">
+                    </lightning-input>
 
-                    <!-- Verify button — calls handleVerifyRecord (no event param) -->
+                    <!-- Verify button — calls handleVerifyRecord (button click) -->
                     <div class="formula-builder-modal__verify-action slds-m-top_medium">
                         <lightning-button
                             label="Verify"
                             variant="brand"
                             icon-name="utility:check"
                             icon-position="left"
-                            title="Run syntax verification against the selected record"
+                            title="Run formula syntax verification"
                             onclick={handleVerifyRecord}
                             disabled={isLoading}
                             class="formula-builder-btn-verify-modal">

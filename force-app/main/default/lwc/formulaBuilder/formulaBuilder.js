@@ -19,7 +19,7 @@ import { LightningElement, api, track, wire } from 'lwc';
 import { getObjectInfo }                       from 'lightning/uiObjectInfoApi';
 import { registerRefreshHandler, unregisterRefreshHandler } from 'lightning/refresh';
 
-import { promptSuccess, promptError, promptWarning } from 'c/toasterUtil';
+import { promptSuccess, promptError } from 'c/toasterUtil';
 import { getErrorMessage, logInfo }                  from 'c/loggingUtil';
 import { initCacheIdx }                              from 'c/lwcUtil';
 
@@ -527,29 +527,23 @@ export default class FormulaBuilder extends LightningElement {
     }
 
     /**
-     * @description Stores the record Id selected by the user in the modal's
-     *              lightning-record-picker and clears any stale verify result
-     *              so the UI is ready for a fresh verification call.
-     * @param {Event} event onchange event from lightning-record-picker;
-     *                      event.detail.recordId is null when the picker is cleared
+     * @description Stores the record Id typed by the user in the modal's text input
+     *              and clears any stale verify result so the UI is ready for a fresh call.
+     * @param {Event} event onchange event from lightning-input
      */
-    handleVerifyRecordSelect(event) {
-        this._verifyRecordId   = event.detail.recordId || '';
+    handleVerifyRecordInput(event) {
+        this._verifyRecordId   = (event.detail.value || '').trim();
         this.verifyModalResult = null;
-        this.consoleLog('handleVerifyRecordSelect', { recordId: this._verifyRecordId });
+        this.consoleLog('handleVerifyRecordInput', { recordId: this._verifyRecordId });
     }
 
     /**
      * @description Triggered by the "Verify" button inside the modal.
-     *              Calls verifyFormula() imperatively using the record Id stored
-     *              by handleVerifyRecordSelect and displays the result inline.
+     *              Calls verifyFormula() imperatively. The record Id is optional —
+     *              the Apex method performs syntax-only checks regardless of whether
+     *              a record Id is provided.
      */
     handleVerifyRecord() {
-        if (!this._verifyRecordId) {
-            promptWarning(this, 'Please select a sample record before verifying.');
-            return;
-        }
-
         this.toggleSpinner(1);
         this.verifyModalResult = null;
 
