@@ -798,7 +798,7 @@ export default class FormulaBuilder extends LightningElement {
 
         apexVerifyFormula({
             formula       : this.currentFormulaValue,
-            objectApiName : this.targetObjectApiName,
+            objectApiName : this._targetSObjectApiName,   // resolved SObject, not raw prop
             recordId      : this._verifyRecordId || null
         })
         .then(response => {

@@ -11,44 +11,6 @@
 public with sharing class REDU_FormulaBuilder_LCTRL {
 
     // ─────────────────────────────────────────────────────────────────────────
-    // Private Constants — compiled once at class load time
-    // ─────────────────────────────────────────────────────────────────────────
-
-    /** Matches two consecutive binary operators: AND AND, OR OR, AND OR, etc. */
-    private static final Pattern CONSECUTIVE_OPS = Pattern.compile(
-        '\\b(AND|OR)\\s+(AND|OR)\\b'
-    );
-
-    /**
-     * Matches a formula that STARTS with a binary operator used in infix style.
-     * Requires whitespace after AND/OR so that the valid function-call forms
-     * AND(...) and OR(...) are not matched — those are immediately followed by
-     * '(' with no whitespace, so they cannot match '\s+'.
-     * Also matches && or || at the very start (no left operand).
-     */
-    private static final Pattern STARTS_WITH_BINARY = Pattern.compile(
-        '^((AND|OR)\\s+|&&|\\|\\|)'
-    );
-
-    /** Matches a formula that ends with a logical operator (trailing operator).
-     *  Covers word-form AND/OR/NOT as well as symbolic && and || operators. */
-    private static final Pattern ENDS_WITH_OP = Pattern.compile(
-        '(\\b(AND|OR|NOT)|&&|\\|\\|)\\s*$'
-    );
-
-    /**
-     * Matches multi-argument function calls where arguments appear to be separated
-     * only by whitespace instead of commas, suggesting a missing comma.
-     */
-    private static final Pattern FUNC_MISSING_COMMA = Pattern.compile(
-        '\\b(IF|CASE|INCLUDES|EXCLUDES|LEFT|RIGHT|MID|ROUND|MOD|MAX|MIN|VALUE|TEXT|DATEVALUE|DATETIMEVALUE)'
-        + '\\s*\\([^,()]+\\s+[^,()\\s][^,()]*\\)'
-    );
-
-    /** Matches doubled or transposed comparison operators: ==, =>, =< */
-    private static final Pattern DOUBLE_EQUALS = Pattern.compile('==|=>|=<');
-
-    // ─────────────────────────────────────────────────────────────────────────
     // Public AuraEnabled Methods
     // ─────────────────────────────────────────────────────────────────────────
 
@@ -323,26 +285,20 @@ public with sharing class REDU_FormulaBuilder_LCTRL {
     }
 
     /**
-     * @description Validates the syntax of a formula string.
-     *              Does NOT evaluate whether the logical output is true or false.
+     * @description Validates a formula string using Salesforce's native FormulaEval
+     *              compiler (Formula.builder).  This performs full schema-aware
+     *              validation — syntax, unknown fields, type errors — in a single
+     *              platform call, replacing the manual regex-based approach.
      *
-     *              Checks are performed in two phases:
-     *                Phase 1 — A string-literal-aware single-pass character scan that:
-     *                   (a) detects unclosed string literals, reporting the exact position;
-     *                   (b) counts parenthesis depth only for characters outside string
-     *                       literals, so parens embedded in string values are ignored;
-     *                   (c) emits a "stripped" copy of the formula with all string literal
-     *                       content replaced by a neutral placeholder for Phase 2.
-     *                Phase 2 — Pattern-based checks run against the stripped formula
-     *                   to detect operator-level syntax errors without false positives
-     *                   caused by operator keywords that appear inside string values.
+     *              The compiler is invoked with three common return types in order
+     *              (Decimal → Boolean → String) because build() requires a declared
+     *              return type.  A formula is considered valid as soon as any type
+     *              compiles successfully.  If all three fail, the error message from
+     *              the last attempt (most generic type) is returned.
      *
      * @param formula       The formula string to verify
-     * @param objectApiName Reserved — API name of the object the formula belongs to
-     *                      (not used in the current syntax-only implementation;
-     *                      retained for future schema-aware evaluation)
-     * @param recordId      Reserved — a sample record Id for future context-aware evaluation
-     *                      (not used in the current syntax-only implementation)
+     * @param objectApiName API name of the SObject the formula is evaluated against
+     * @param recordId      Unused — retained for API compatibility
      * @return REDU_LightningResponse containing a Map with keys:
      *         isValid (Boolean) and errorMessage (String, null when valid)
      */
@@ -365,147 +321,56 @@ public with sharing class REDU_FormulaBuilder_LCTRL {
                 return new REDU_LightningResponse(true, 'Verification Result', JSON.serialize(result));
             }
 
-            String trimmed = formula.trim();
+            // ── Guard: object API name required for schema-aware validation ──
+            if (String.isBlank(objectApiName)) {
+                result.put('isValid',      false);
+                result.put('errorMessage', 'Object API Name is required to validate formula field references.');
+                return new REDU_LightningResponse(true, 'Verification Result', JSON.serialize(result));
+            }
 
-            // ─────────────────────────────────────────────────────────────────
-            // PHASE 1: String-literal-aware single-pass scan
-            //
-            // Salesforce formula string literals may use EITHER quote style:
-            //   • Single-quoted:  'text value'   ('' = escaped single quote inside)
-            //   • Double-quoted:  "text value"   ("" = escaped double quote inside)
-            // A quote of one style inside a literal of the other style is treated
-            // as ordinary content and does NOT open or close a string.
-            // Any character — including (, ), AND, OR — inside a string literal
-            // is part of the string value and must be ignored by syntax checks.
-            // ─────────────────────────────────────────────────────────────────
+            // ── Resolve SObject type ─────────────────────────────────────────
+            Schema.SObjectType sobjType = Schema.getGlobalDescribe().get(objectApiName.trim());
+            if (sobjType == null) {
+                result.put('isValid',      false);
+                result.put('errorMessage', 'Unknown object: ' + objectApiName + '. Cannot validate formula.');
+                return new REDU_LightningResponse(true, 'Verification Result', JSON.serialize(result));
+            }
 
-            Boolean      insideString    = false;
-            String       stringQuoteChar = null; // '\'' or '"' — which quote opened the string
-            Integer      parenDepth      = 0;
-            Integer      openQuotePos    = -1; // 1-based position of the unclosed opening quote
-            List<String> strippedChars   = new List<String>();
+            // ── Native FormulaEval compilation ───────────────────────────────
+            // Formula.builder().build() performs full syntax + schema validation.
+            // build() throws FormulaEval.FormulaException on any error.
+            // We try Decimal first (score formulas are typically numeric), then
+            // Boolean (criteria formulas), then String as a final fallback so the
+            // validator accepts formulas of any return type.
+            List<FormulaEval.FormulaReturnType> returnTypes = new List<FormulaEval.FormulaReturnType>{
+                FormulaEval.FormulaReturnType.Decimal,
+                FormulaEval.FormulaReturnType.Boolean,
+                FormulaEval.FormulaReturnType.String
+            };
 
-            for (Integer i = 0; i < trimmed.length(); i++) {
-                String ch = trimmed.substring(i, i + 1);
+            String  lastError   = null;
+            Boolean builtOk     = false;
 
-                if (insideString) {
-                    // Inside a string literal — only the MATCHING closing quote ends it.
-                    if (ch == stringQuoteChar) {
-                        // Two consecutive same-quotes = escaped quote; stay inside the string.
-                        if (i + 1 < trimmed.length() && trimmed.substring(i + 1, i + 2) == stringQuoteChar) {
-                            i++; // skip the second quote of the escape pair
-                            continue;
-                        }
-                        // Otherwise this is the closing quote — exit string context.
-                        insideString    = false;
-                        stringQuoteChar = null;
-                        openQuotePos    = -1;
-                        // Represent the entire string literal as a single space placeholder
-                        // so Phase 2 patterns see a neutral token rather than string content.
-                        strippedChars.add(' ');
-                    }
-                    // All other characters inside a string are intentionally skipped.
-
-                } else if (ch == '\'' || ch == '"') {
-                    // Opening quote — enter string context, remember which quote style.
-                    insideString    = true;
-                    stringQuoteChar = ch;
-                    openQuotePos    = i + 1; // 1-based for the error message
-
-                } else {
-                    // Outside a string: track parenthesis depth and collect for Phase 2.
-                    if (ch == '(') {
-                        parenDepth++;
-                    } else if (ch == ')') {
-                        parenDepth--;
-                        if (parenDepth < 0) {
-                            result.put('isValid',      false);
-                            result.put('errorMessage',
-                                'Unmatched closing parenthesis at character position ' + (i + 1) + '.');
-                            return new REDU_LightningResponse(true, 'Verification Result', JSON.serialize(result));
-                        }
-                    }
-                    strippedChars.add(ch);
+            for (FormulaEval.FormulaReturnType rt : returnTypes) {
+                try {
+                    Formula.builder()
+                        .withReturnType(rt)
+                        .withType(sobjType)
+                        .withFormula(formula.trim())
+                        .build();
+                    builtOk = true;
+                    break;
+                } catch (Exception e) {
+                    lastError = e.getMessage();
                 }
             }
 
-            // ── Check A: unclosed string literal ────────────────────────────
-            if (insideString) {
-                String quoteType = (stringQuoteChar == '"') ? 'double' : 'single';
+            if (!builtOk) {
                 result.put('isValid',      false);
-                result.put('errorMessage',
-                    'Unclosed string literal: the ' + quoteType + ' quote at position ' + openQuotePos +
-                    ' was never closed. Ensure every string value is wrapped in a matching pair of ' +
-                    quoteType + ' quotes.');
-                return new REDU_LightningResponse(true, 'Verification Result', JSON.serialize(result));
+                result.put('errorMessage', lastError);
             }
 
-            // ── Check B: unbalanced opening parentheses ──────────────────────
-            if (parenDepth != 0) {
-                result.put('isValid',      false);
-                result.put('errorMessage',
-                    'Unmatched opening parenthesis: ' + parenDepth +
-                    ' parenthesis(es) left unclosed.');
-                return new REDU_LightningResponse(true, 'Verification Result', JSON.serialize(result));
-            }
-
-            // ─────────────────────────────────────────────────────────────────
-            // PHASE 2: Pattern-based operator checks on the stripped formula.
-            // String literals have been replaced by single-space placeholders, so
-            // none of the patterns below can produce false positives from string content.
-            // ─────────────────────────────────────────────────────────────────
-
-            String stripped   = String.join(strippedChars, '');
-            String normalized = stripped.replaceAll('\\s+', ' ').trim();
-            String upper      = normalized.toUpperCase();
-
-            // ── Check C: consecutive binary operators (AND AND, OR OR, AND OR…) ──
-            if (CONSECUTIVE_OPS.matcher(upper).find()) {
-                result.put('isValid',      false);
-                result.put('errorMessage',
-                    'Consecutive logical operators detected (e.g. AND AND, OR OR, AND OR). '
-                    + 'Ensure each operator has an operand on both sides.');
-                return new REDU_LightningResponse(true, 'Verification Result', JSON.serialize(result));
-            }
-
-            // ── Check D: formula starts with a binary operator ───────────────
-            if (STARTS_WITH_BINARY.matcher(upper).find()) {
-                result.put('isValid',      false);
-                result.put('errorMessage',
-                    'Formula cannot begin with a binary logical operator (AND / OR). '
-                    + 'Add a left-hand operand or remove the leading operator.');
-                return new REDU_LightningResponse(true, 'Verification Result', JSON.serialize(result));
-            }
-
-            // ── Check E: formula ends with any logical operator ──────────────
-            if (ENDS_WITH_OP.matcher(upper).find()) {
-                result.put('isValid',      false);
-                result.put('errorMessage',
-                    'Formula cannot end with a logical operator (AND / OR / NOT). '
-                    + 'Add a right-hand operand or remove the trailing operator.');
-                return new REDU_LightningResponse(true, 'Verification Result', JSON.serialize(result));
-            }
-
-            // ── Check F: missing comma inside multi-argument function calls ───
-            if (FUNC_MISSING_COMMA.matcher(upper).find()) {
-                result.put('isValid',      false);
-                result.put('errorMessage',
-                    'Possible missing comma inside a function call. '
-                    + 'Ensure all function arguments are separated by commas.');
-                return new REDU_LightningResponse(true, 'Verification Result', JSON.serialize(result));
-            }
-
-            // ── Check G: doubled / invalid comparison operators (==, =>, =<) ─
-            if (DOUBLE_EQUALS.matcher(normalized).find()) {
-                result.put('isValid',      false);
-                result.put('errorMessage',
-                    'Invalid operator detected. Use = for equality and != or <> for not-equal. '
-                    + 'Remove any doubled operators (==, =>, =<).');
-                return new REDU_LightningResponse(true, 'Verification Result', JSON.serialize(result));
-            }
-
-            // ── All checks passed ────────────────────────────────────────────
-            return new REDU_LightningResponse(true, 'Success', JSON.serialize(result));
+            return new REDU_LightningResponse(true, 'Verification Result', JSON.serialize(result));
 
         } catch (Exception exp) {
             throw REDU_Exception_UTIL.auraException(exp.getMessage(), exp.getLineNumber(), null);
