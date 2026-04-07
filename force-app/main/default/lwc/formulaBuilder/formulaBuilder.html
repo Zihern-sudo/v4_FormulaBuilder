@@ -36,7 +36,14 @@
     <c-js-library-loader></c-js-library-loader>
 
     <!-- ═══════════════════════════════════════════════════════════════════════
-         2. Spinner  — outside isInitSuccess so it shows during init phase too
+         Root container — position:relative so the spinner overlay is scoped
+         to the component and never covers the rest of the page.
+         ═══════════════════════════════════════════════════════════════════ -->
+    <div class="formula-builder-root">
+
+    <!-- ═══════════════════════════════════════════════════════════════════════
+         2. Spinner  — position:absolute inside formula-builder-root so it
+         covers only this component, not the whole viewport.
          ═══════════════════════════════════════════════════════════════════ -->
     <template if:true={isLoading}>
         <div class="formula-builder-spinner-container">
@@ -490,5 +497,8 @@
         <div class="slds-backdrop slds-backdrop_open"></div>
     </template>
     <!-- /verify modal -->
+
+    </div>
+    <!-- /formula-builder-root -->
 
 </template>

@@ -170,6 +170,15 @@ export default class FormulaBuilder extends LightningElement {
     @track _verifyRecordId = '';
 
     /**
+     * @description True while getObjectFields is running for a system-variable
+     *              selection.  Drives only the Fields combobox disabled/placeholder
+     *              state — does NOT trigger the global full-component spinner, so
+     *              the rest of the UI remains interactive and there is no
+     *              page-level visual glitch.
+     */
+    @track _fieldsLoading = false;
+
+    /**
      * @description System Variable selected in Step 1.
      *              Cleared once the user inserts the combined token or clicks Clear.
      */
@@ -467,7 +476,10 @@ export default class FormulaBuilder extends LightningElement {
      * @param {boolean} isTargetSObject  true = show "label (apiName)", false = apiName only
      */
     _loadFieldsForSystemVariable(sysVarApiName, isTargetSObject) {
-        this.toggleSpinner(1);
+        // Use a local loading flag rather than the global spinner so that
+        // switching system variables only disables the Fields combobox and does
+        // not trigger the full-component overlay, which caused the page glitch.
+        this._fieldsLoading = true;
 
         return apexGetObjectFields({ objectApiName: sysVarApiName })
             .then(response => {
@@ -493,7 +505,7 @@ export default class FormulaBuilder extends LightningElement {
                 // Leave the existing field options unchanged rather than clearing them.
                 this.consoleLog('_loadFieldsForSystemVariable — error (fields unchanged)', error);
             })
-            .finally(() => this.toggleSpinner(-1));
+            .finally(() => { this._fieldsLoading = false; });
     }
 
     /**
@@ -984,20 +996,20 @@ export default class FormulaBuilder extends LightningElement {
     /**
      * True when the Fields combobox should be disabled.
      * Enforces the two-step rule: a system variable must be chosen first.
+     * Also disabled while the field list for the chosen system variable is loading.
      */
     get isFieldsDisabled() {
-        return this.isLoading || !this._pendingSystemVariable;
+        return this.isLoading || this._fieldsLoading || !this._pendingSystemVariable;
     }
 
     /**
      * Placeholder text for the Fields combobox.
-     * When no system variable is selected the placeholder guides the user
-     * to complete Step 1 before attempting Step 2.
+     * Changes based on the current two-step state to guide the user.
      */
     get fieldsPlaceholder() {
-        return this._pendingSystemVariable
-            ? 'Select a Field'
-            : 'Select a System Variable first';
+        if (!this._pendingSystemVariable) { return 'Select a System Variable first'; }
+        if (this._fieldsLoading)          { return 'Loading fields…'; }
+        return 'Select a Field';
     }
 
     /**

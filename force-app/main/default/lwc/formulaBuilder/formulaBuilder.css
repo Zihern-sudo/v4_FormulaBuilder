@@ -21,9 +21,17 @@
 
 /* ─── 1. Root / wrapper ──────────────────────────────────────────────────── */
 
-.formula-builder-wrapper {
+/*
+ * formula-builder-root wraps the spinner and the card so the spinner overlay
+ * is positioned relative to the component, never the full viewport.
+ */
+.formula-builder-root {
     display: block;
     position: relative;
+}
+
+.formula-builder-wrapper {
+    display: block;
 }
 
 .formula-builder-card {
@@ -32,14 +40,19 @@
 
 /* ─── 2. Spinner overlay ─────────────────────────────────────────────────── */
 
+/*
+ * position:absolute (not fixed) keeps the overlay inside formula-builder-root
+ * so it never blankets the rest of the page when loading data.
+ */
 .formula-builder-spinner-container {
-    position: fixed;
+    position: absolute;
     inset: 0;
-    z-index: 9999;
+    z-index: 100;
     display: flex;
     align-items: center;
     justify-content: center;
-    background-color: rgba(255, 255, 255, 0.5);
+    background-color: rgba(255, 255, 255, 0.65);
+    border-radius: 0.25rem;
 }
 
 /* ─── 3. Card header actions ─────────────────────────────────────────────── */
