@@ -567,7 +567,7 @@ export default class FormulaBuilder extends LightningElement {
 
         // ── Step 1: syntax check ─────────────────────────────────────────────
         apexVerifyFormula({
-            formula       : this.currentFormulaValue,
+            formulaStr    : this.currentFormulaValue,
             objectApiName : this._targetSObjectApiName,
             recordId      : null   // syntax-only; no record context needed here
         })
@@ -797,7 +797,7 @@ export default class FormulaBuilder extends LightningElement {
         this.toggleSpinner(1);
 
         apexVerifyFormula({
-            formula       : this.currentFormulaValue,
+            formulaStr    : this.currentFormulaValue,
             objectApiName : this._targetSObjectApiName,   // resolved SObject, not raw prop
             recordId      : this._verifyRecordId || null
         })
