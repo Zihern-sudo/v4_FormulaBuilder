@@ -255,25 +255,6 @@ public class REDU_FormulaBuilder_LCTRL_TEST {
     }
 
     // ─────────────────────────────────────────────────────────────────────────
-    // getTargetSObjectType — Tests
-    // ─────────────────────────────────────────────────────────────────────────
-
-    /**
-     * @description Null recordId must return a response whose responseData is
-     *              the JSON-serialised null literal (not throw).
-     */
-    @isTest
-    static void testGetTargetSObjectType_NullRecordId_ReturnsNull() {
-        Test.startTest();
-        REDU_LightningResponse response = REDU_FormulaBuilder_LCTRL.getTargetSObjectType(null);
-        Test.stopTest();
-
-        System.assertNotEquals(null, response, 'Response must not be null');
-        System.assertEquals('null', response.responseData,
-            'Null recordId must return JSON null in responseData');
-    }
-
-    // ─────────────────────────────────────────────────────────────────────────
     // getObjectFields — Tests
     // ─────────────────────────────────────────────────────────────────────────
 

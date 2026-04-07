@@ -29,11 +29,10 @@ import { ShowToastEvent }    from 'lightning/platformShowToastEvent';
 import { getErrorMessage, logInfo } from 'c/loggingUtil';
 import { initCacheIdx }                              from 'c/lwcUtil';
 
-import apexGetFieldValue       from '@salesforce/apex/REDU_FormulaBuilder_LCTRL.getFieldValue';
-import apexUpdateFieldValue    from '@salesforce/apex/REDU_FormulaBuilder_LCTRL.updateFieldValue';
-import apexVerifyFormula       from '@salesforce/apex/REDU_FormulaBuilder_LCTRL.verifyFormula';
-import apexGetTargetSObjectType from '@salesforce/apex/REDU_FormulaBuilder_LCTRL.getTargetSObjectType';
-import apexGetObjectFields      from '@salesforce/apex/REDU_FormulaBuilder_LCTRL.getObjectFields';
+import apexGetFieldValue    from '@salesforce/apex/REDU_FormulaBuilder_LCTRL.getFieldValue';
+import apexUpdateFieldValue from '@salesforce/apex/REDU_FormulaBuilder_LCTRL.updateFieldValue';
+import apexVerifyFormula    from '@salesforce/apex/REDU_FormulaBuilder_LCTRL.verifyFormula';
+import apexGetObjectFields  from '@salesforce/apex/REDU_FormulaBuilder_LCTRL.getObjectFields';
 
 // ─── Component identifier for log statements ──────────────────────────────────
 const COMPONENT = 'formulaBuilder';
@@ -240,8 +239,13 @@ export default class FormulaBuilder extends LightningElement {
         this._initFunctionOptions();
         this._initOperatorOptions();
 
-        // Async: resolve target SObject type, then build System Variables + pre-load Fields
-        this._loadTargetSObjectType();
+        // Build System Variables from targetObjectApiName (works for any configured object)
+        // and pre-load that object's fields into the Fields combobox synchronously/async.
+        this._targetSObjectApiName = this.targetObjectApiName || '';
+        this._buildSystemVariableOptions(this._targetSObjectApiName || null);
+        if (this._targetSObjectApiName) {
+            this._loadFieldsForSystemVariable(this._targetSObjectApiName, true);
+        }
 
         // Async: load the current formula value when both object and field are set
         if (this.isConfigured) {
@@ -309,40 +313,6 @@ export default class FormulaBuilder extends LightningElement {
             BLANK_OPTION,
             ...OPERATOR_DEFINITIONS.map(op => ({ label: op.label, value: op.value }))
         ];
-    }
-
-    /**
-     * @description Calls getTargetSObjectType() imperatively with the current recordId
-     *              to resolve the target SObject API name from the criteria record.
-     *              On success, builds the System Variables options and pre-loads the
-     *              Fields combobox for the target SObject.
-     *              Falls back to seeds-only list if the call fails or recordId is absent.
-     */
-    _loadTargetSObjectType() {
-        if (!this.recordId) {
-            this._buildSystemVariableOptions(null);
-            return;
-        }
-
-        this.toggleSpinner(1);
-
-        apexGetTargetSObjectType({ recordId: this.recordId })
-            .then(response => {
-                const sObjectType = response.responseData
-                    ? JSON.parse(response.responseData) : null;
-                this._targetSObjectApiName = sObjectType || '';
-                this._buildSystemVariableOptions(sObjectType);
-                // Pre-load fields for the target SObject so the Fields combobox is ready
-                if (sObjectType) {
-                    this._loadFieldsForSystemVariable(sObjectType, true);
-                }
-                this.consoleLog('_loadTargetSObjectType — resolved', { sObjectType });
-            })
-            .catch(error => {
-                this.consoleLog('_loadTargetSObjectType — error, using seeds only', error);
-                this._buildSystemVariableOptions(null);
-            })
-            .finally(() => this.toggleSpinner(-1));
     }
 
     /**

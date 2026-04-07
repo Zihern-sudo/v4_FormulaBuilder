@@ -146,44 +146,6 @@ public with sharing class REDU_FormulaBuilder_LCTRL {
     }
 
     /**
-     * @description Resolves the target SObject type from a Study Scoring Criteria record
-     *              by traversing the parent Study Scoring Config relationship.
-     *              Returns null (JSON-serialised) when recordId is null or no row is found.
-     * @param recordId Id of the reduivy__Study_Scoring_Criteria__c record
-     * @return REDU_LightningResponse whose responseData is a JSON-serialised String or null
-     */
-    @AuraEnabled(cacheable=true)
-    public static REDU_LightningResponse getTargetSObjectType(Id recordId) {
-        try {
-            if (recordId == null) {
-                return new REDU_LightningResponse(true, 'No record', JSON.serialize(null));
-            }
-
-            List<SObject> results = Database.query(
-                'SELECT reduivy__Study_Scoring_Config__r.reduivy__SObjectType__c ' +
-                'FROM reduivy__Study_Scoring_Criteria__c '                          +
-                'WHERE Id = :recordId '                                             +
-                'LIMIT 1'
-            );
-
-            if (results.isEmpty()) {
-                return new REDU_LightningResponse(true, 'Not found', JSON.serialize(null));
-            }
-
-            SObject config      = (SObject) results[0].getSObject('reduivy__Study_Scoring_Config__r');
-            String  sObjectType = config != null ? (String) config.get('reduivy__SObjectType__c') : null;
-
-            return new REDU_LightningResponse(true, 'Success', JSON.serialize(sObjectType));
-
-        } catch (QueryException qex) {
-            String errorMsg = REDU_ObjectSecurity_UTIL.handleQueryException(qex, false);
-            throw REDU_Exception_UTIL.auraException(errorMsg);
-        } catch (Exception exp) {
-            throw REDU_Exception_UTIL.auraException(exp.getMessage(), exp.getLineNumber(), null);
-        }
-    }
-
-    /**
      * @description Returns all accessible fields for the given SObject using
      *              Schema.describeSObjects.  The JS layer decides how to render
      *              each field (label + apiName for the target SObject; apiName only
