@@ -255,6 +255,68 @@ public class REDU_FormulaBuilder_LCTRL_TEST {
     }
 
     // ─────────────────────────────────────────────────────────────────────────
+    // getTargetSObjectType — Tests
+    // ─────────────────────────────────────────────────────────────────────────
+
+    /**
+     * @description Happy path: direct field (no relationship traversal).
+     *              Uses Account.Industry as a simple one-part path.
+     */
+    @isTest
+    static void testGetTargetSObjectType_DirectField_ReturnsValue() {
+        Account acc = getTestAccount();
+
+        Test.startTest();
+        REDU_LightningResponse response = REDU_FormulaBuilder_LCTRL.getTargetSObjectType(
+            'Account', 'Industry', acc.Id
+        );
+        Test.stopTest();
+
+        System.assertNotEquals(null, response, 'Response must not be null');
+        // JSON.serialize wraps strings in quotes; deserialise to compare cleanly
+        String value = (String) JSON.deserializeUntyped(response.responseData);
+        System.assertEquals('Technology', value,
+            'Industry field must return the value set in @TestSetup');
+    }
+
+    /**
+     * @description Blank objectApiName must throw AuraHandledException.
+     */
+    @isTest
+    static void testGetTargetSObjectType_BlankObjectApiName_ThrowsException() {
+        Account acc = getTestAccount();
+        Boolean exceptionThrown = false;
+
+        Test.startTest();
+        try {
+            REDU_FormulaBuilder_LCTRL.getTargetSObjectType('', 'Industry', acc.Id);
+        } catch (AuraHandledException ex) {
+            exceptionThrown = true;
+        }
+        Test.stopTest();
+
+        System.assert(exceptionThrown, 'AuraHandledException expected for blank objectApiName');
+    }
+
+    /**
+     * @description Null recordId must throw AuraHandledException.
+     */
+    @isTest
+    static void testGetTargetSObjectType_NullRecordId_ThrowsException() {
+        Boolean exceptionThrown = false;
+
+        Test.startTest();
+        try {
+            REDU_FormulaBuilder_LCTRL.getTargetSObjectType('Account', 'Industry', null);
+        } catch (AuraHandledException ex) {
+            exceptionThrown = true;
+        }
+        Test.stopTest();
+
+        System.assert(exceptionThrown, 'AuraHandledException expected for null recordId');
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
     // getObjectFields — Tests
     // ─────────────────────────────────────────────────────────────────────────
 

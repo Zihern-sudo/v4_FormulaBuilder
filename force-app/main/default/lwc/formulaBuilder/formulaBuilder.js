@@ -29,10 +29,11 @@ import { ShowToastEvent }    from 'lightning/platformShowToastEvent';
 import { getErrorMessage, logInfo } from 'c/loggingUtil';
 import { initCacheIdx }                              from 'c/lwcUtil';
 
-import apexGetFieldValue    from '@salesforce/apex/REDU_FormulaBuilder_LCTRL.getFieldValue';
-import apexUpdateFieldValue from '@salesforce/apex/REDU_FormulaBuilder_LCTRL.updateFieldValue';
-import apexVerifyFormula    from '@salesforce/apex/REDU_FormulaBuilder_LCTRL.verifyFormula';
-import apexGetObjectFields  from '@salesforce/apex/REDU_FormulaBuilder_LCTRL.getObjectFields';
+import apexGetFieldValue        from '@salesforce/apex/REDU_FormulaBuilder_LCTRL.getFieldValue';
+import apexUpdateFieldValue     from '@salesforce/apex/REDU_FormulaBuilder_LCTRL.updateFieldValue';
+import apexVerifyFormula        from '@salesforce/apex/REDU_FormulaBuilder_LCTRL.verifyFormula';
+import apexGetTargetSObjectType from '@salesforce/apex/REDU_FormulaBuilder_LCTRL.getTargetSObjectType';
+import apexGetObjectFields      from '@salesforce/apex/REDU_FormulaBuilder_LCTRL.getObjectFields';
 
 // ─── Component identifier for log statements ──────────────────────────────────
 const COMPONENT = 'formulaBuilder';
@@ -191,9 +192,18 @@ export default class FormulaBuilder extends LightningElement {
     _pendingCursorPos = undefined;
 
     /**
-     * @description API name of the target SObject resolved from the criteria record
-     *              via getTargetSObjectType().  Used to identify which system variable
-     *              option maps to the target object so Fields shows label (apiName) format.
+     * @description The base SObject that physically stores the formula field
+     *              (i.e. the object used in getFieldValue / updateFieldValue SOQL).
+     *              Parsed from targetObjectApiName — always the plain API name
+     *              with no '{}' suffix.  Drives the getObjectInfo wire adapter so
+     *              fieldLabel resolves correctly even when a dynamic target is used.
+     */
+    _storageObjectApiName = '';
+
+    /**
+     * @description The SObject whose fields populate the System Variables first option
+     *              and the Fields combobox.  Equals _storageObjectApiName for plain-format
+     *              inputs; resolved via Apex for dynamic '{relationship.field}' inputs.
      */
     _targetSObjectApiName = '';
 
@@ -208,15 +218,17 @@ export default class FormulaBuilder extends LightningElement {
      *              the configured targetFieldApiName.
      * @param {Object} wireResult Standard LWC wire result { data, error }
      */
-    @wire(getObjectInfo, { objectApiName: '$targetObjectApiName' })
+    // Wired to _storageObjectApiName (the plain base object API name without any '{}' suffix).
+    // Resolves fieldLabel for view-mode display.  Cannot wire to targetObjectApiName directly
+    // because that @api prop may contain the dynamic '{relationship.field}' format which is
+    // not a valid SObject name and would cause the wire to return an error.
+    @wire(getObjectInfo, { objectApiName: '$_storageObjectApiName' })
     wiredObjectInfo({ error, data }) {
         if (data) {
-            this.consoleLog('wiredObjectInfo — received data', { objectApiName: this.targetObjectApiName });
-            // Resolve the display label for the target field (view mode only)
+            this.consoleLog('wiredObjectInfo — received data', { objectApiName: this._storageObjectApiName });
             if (this.targetFieldApiName && data.fields[this.targetFieldApiName]) {
                 this.fieldLabel = data.fields[this.targetFieldApiName].label;
             }
-            // fieldOptions is now driven by system variable selection (_loadFieldsForSystemVariable)
         } else if (error) {
             this.consoleLog('wiredObjectInfo — error', error);
         }
@@ -239,12 +251,20 @@ export default class FormulaBuilder extends LightningElement {
         this._initFunctionOptions();
         this._initOperatorOptions();
 
-        // Build System Variables from targetObjectApiName (works for any configured object)
-        // and pre-load that object's fields into the Fields combobox synchronously/async.
-        this._targetSObjectApiName = this.targetObjectApiName || '';
-        this._buildSystemVariableOptions(this._targetSObjectApiName || null);
-        if (this._targetSObjectApiName) {
-            this._loadFieldsForSystemVariable(this._targetSObjectApiName, true);
+        // Parse targetObjectApiName — supports both plain and dynamic '{rel.field}' formats.
+        // _storageObjectApiName is always set here (plain API name, no '{}') so the
+        // getObjectInfo wire adapter fires immediately and resolves fieldLabel.
+        const { storageObject, isDynamic, fieldPath } = this._parseTargetConfig();
+        this._storageObjectApiName = storageObject;
+
+        if (isDynamic) {
+            // Dynamic: query the record to resolve the actual SObject for the Fields combobox.
+            this._loadDynamicTargetSObject(storageObject, fieldPath);
+        } else {
+            // Plain: use storageObject directly for both storage and formula-target roles.
+            this._targetSObjectApiName = storageObject;
+            this._buildSystemVariableOptions(storageObject);
+            if (storageObject) { this._loadFieldsForSystemVariable(storageObject, true); }
         }
 
         // Async: load the current formula value when both object and field are set
@@ -316,6 +336,82 @@ export default class FormulaBuilder extends LightningElement {
     }
 
     /**
+     * @description Parses the targetObjectApiName @api property which supports
+     *              two formats set in the Lightning App Builder:
+     *
+     *                1. Plain:   'reduivy__Study_Scoring_Criteria__c'
+     *                   → storageObject = 'reduivy__Study_Scoring_Criteria__c'
+     *                   → isDynamic     = false
+     *
+     *                2. Dynamic: 'reduivy__Study_Scoring_Criteria__c
+     *                             {reduivy__Study_Scoring_Config__r.reduivy__SObjectType__c}'
+     *                   → storageObject = 'reduivy__Study_Scoring_Criteria__c'
+     *                   → isDynamic     = true
+     *                   → fieldPath     = 'reduivy__Study_Scoring_Config__r.reduivy__SObjectType__c'
+     *
+     *              The storage object is always the object that owns the formula field
+     *              (used for getFieldValue / updateFieldValue).
+     *              The fieldPath, when present, is resolved via Apex to obtain the
+     *              actual SObject whose fields appear in the Fields combobox.
+     *
+     * @return {{ storageObject: string, isDynamic: boolean, fieldPath: string|null }}
+     */
+    _parseTargetConfig() {
+        const raw = (this.targetObjectApiName || '').trim();
+        // Remove any whitespace between the object name and the '{' before matching
+        const normalised = raw.replace(/\s+/g, '');
+        const match      = normalised.match(/^([^{]+)\{([^}]+)\}$/);
+        if (match) {
+            return { storageObject: match[1], isDynamic: true,  fieldPath: match[2] };
+        }
+        return { storageObject: raw,       isDynamic: false, fieldPath: null };
+    }
+
+    /**
+     * @description Calls getTargetSObjectType() to resolve the actual SObject
+     *              whose fields the formula references when the dynamic
+     *              'BaseObject{relationship.field}' format is used.
+     *              Falls back to storageObject on error or missing recordId.
+     * @param {string} storageObject  Base object API name (without '{}')
+     * @param {string} fieldPath      Cross-object field path inside the '{}'
+     */
+    _loadDynamicTargetSObject(storageObject, fieldPath) {
+        if (!this.recordId) {
+            // No record context — fall back to using the storage object itself
+            this._targetSObjectApiName = storageObject;
+            this._buildSystemVariableOptions(storageObject);
+            if (storageObject) { this._loadFieldsForSystemVariable(storageObject, true); }
+            return;
+        }
+
+        this.toggleSpinner(1);
+
+        apexGetTargetSObjectType({
+            objectApiName : storageObject,
+            fieldPath     : fieldPath,
+            recordId      : this.recordId
+        })
+        .then(response => {
+            const resolved = response.responseData ? JSON.parse(response.responseData) : null;
+            this._targetSObjectApiName = resolved || storageObject;
+            this._buildSystemVariableOptions(this._targetSObjectApiName);
+            this._loadFieldsForSystemVariable(this._targetSObjectApiName, true);
+            this.consoleLog('_loadDynamicTargetSObject — resolved', {
+                storageObject,
+                fieldPath,
+                resolved : this._targetSObjectApiName
+            });
+        })
+        .catch(error => {
+            this.consoleLog('_loadDynamicTargetSObject — error, falling back to storage object', error);
+            this._targetSObjectApiName = storageObject;
+            this._buildSystemVariableOptions(storageObject);
+            if (storageObject) { this._loadFieldsForSystemVariable(storageObject, true); }
+        })
+        .finally(() => this.toggleSpinner(-1));
+    }
+
+    /**
      * @description Builds the System Variables combobox options.
      *              Order: [Select an Option] → target SObject (if known) → standard seeds.
      * @param {string|null} targetSObjectApiName  API name resolved from the criteria record
@@ -379,7 +475,7 @@ export default class FormulaBuilder extends LightningElement {
         this.toggleSpinner(1);
 
         apexGetFieldValue({
-            objectApiName : this.targetObjectApiName,
+            objectApiName : this._storageObjectApiName,
             fieldApiName  : this.targetFieldApiName,
             recordId      : this.recordId
         })
@@ -438,7 +534,7 @@ export default class FormulaBuilder extends LightningElement {
         // ── Step 1: syntax check ─────────────────────────────────────────────
         apexVerifyFormula({
             formula       : this.currentFormulaValue,
-            objectApiName : this.targetObjectApiName,
+            objectApiName : this._targetSObjectApiName,
             recordId      : null   // syntax-only; no record context needed here
         })
         .then(verifyResponse => {
@@ -458,7 +554,7 @@ export default class FormulaBuilder extends LightningElement {
 
             // ── Step 2: persist ──────────────────────────────────────────────
             return apexUpdateFieldValue({
-                objectApiName : this.targetObjectApiName,
+                objectApiName : this._storageObjectApiName,
                 fieldApiName  : this.targetFieldApiName,
                 recordId      : this.recordId,
                 formulaValue  : this.currentFormulaValue
@@ -669,8 +765,9 @@ export default class FormulaBuilder extends LightningElement {
      * @return {string} e.g. "Formula for Study_Requirement_Set__c.Criteria__c"
      */
     get formulaTargetLabel() {
-        return this.isConfigured
-            ? `Formula for ${this.targetObjectApiName}.${this.targetFieldApiName}`
+        const obj = this._storageObjectApiName || this.targetObjectApiName;
+        return (obj && this.targetFieldApiName)
+            ? `Formula for ${obj}.${this.targetFieldApiName}`
             : '';
     }
 

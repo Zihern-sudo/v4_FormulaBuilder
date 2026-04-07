@@ -146,6 +146,79 @@ public with sharing class REDU_FormulaBuilder_LCTRL {
     }
 
     /**
+     * @description Resolves a target SObject API name by querying a field (or
+     *              cross-object relationship path) on the given base object record.
+     *
+     *              Example call for a one-level cross-object path:
+     *                objectApiName = 'reduivy__Study_Scoring_Criteria__c'
+     *                fieldPath     = 'reduivy__Study_Scoring_Config__r.reduivy__SObjectType__c'
+     *                recordId      = '<criteria record Id>'
+     *
+     *              fieldPath supports arbitrarily deep relationship traversal
+     *              (e.g. 'Parent__r.GrandParent__r.SomeField__c') by splitting
+     *              on '.' and walking the SObject chain.
+     *
+     * @param objectApiName  API name of the base SObject to query
+     * @param fieldPath      SOQL field path to select (supports cross-object notation)
+     * @param recordId       Id of the record to query
+     * @return REDU_LightningResponse whose responseData is a JSON-serialised String or null
+     */
+    @AuraEnabled(cacheable=true)
+    public static REDU_LightningResponse getTargetSObjectType(
+        String objectApiName,
+        String fieldPath,
+        Id     recordId
+    ) {
+        try {
+            validateParams(
+                new List<String>{ objectApiName, fieldPath },
+                new List<String>{ 'objectApiName', 'fieldPath' }
+            );
+            if (recordId == null) {
+                throw new AuraHandledException('recordId is required.');
+            }
+
+            String safeObject = String.escapeSingleQuotes(objectApiName);
+            String safeField  = String.escapeSingleQuotes(fieldPath);
+
+            String query =
+                'SELECT ' + safeField +
+                ' FROM '  + safeObject +
+                ' WHERE Id = :recordId' +
+                ' LIMIT 1';
+
+            List<SObject> results = Database.query(query);
+            if (results.isEmpty()) {
+                return new REDU_LightningResponse(true, 'Not found', JSON.serialize(null));
+            }
+
+            // Walk the dot-separated path to handle cross-object relationship fields.
+            // E.g. 'Parent__r.GrandParent__r.Field__c' → getSObject('Parent__r')
+            //        → getSObject('GrandParent__r') → get('Field__c')
+            List<String> parts   = fieldPath.split('\\.');
+            SObject      current = results[0];
+            for (Integer i = 0; i < parts.size() - 1; i++) {
+                if (current == null) { break; }
+                current = current.getSObject(parts[i]);
+            }
+
+            String value = current != null
+                ? (String) current.get(parts[parts.size() - 1])
+                : null;
+
+            return new REDU_LightningResponse(true, 'Success', JSON.serialize(value));
+
+        } catch (QueryException qex) {
+            String errorMsg = REDU_ObjectSecurity_UTIL.handleQueryException(qex, false);
+            throw REDU_Exception_UTIL.auraException(errorMsg);
+        } catch (AuraHandledException ahe) {
+            throw ahe;
+        } catch (Exception exp) {
+            throw REDU_Exception_UTIL.auraException(exp.getMessage(), exp.getLineNumber(), null);
+        }
+    }
+
+    /**
      * @description Returns all accessible fields for the given SObject using
      *              Schema.describeSObjects.  The JS layer decides how to render
      *              each field (label + apiName for the target SObject; apiName only
