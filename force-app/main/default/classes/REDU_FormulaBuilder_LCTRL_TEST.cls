@@ -255,6 +255,84 @@ public class REDU_FormulaBuilder_LCTRL_TEST {
     }
 
     // ─────────────────────────────────────────────────────────────────────────
+    // getTargetSObjectType — Tests
+    // ─────────────────────────────────────────────────────────────────────────
+
+    /**
+     * @description Null recordId must return a response whose responseData is
+     *              the JSON-serialised null literal (not throw).
+     */
+    @isTest
+    static void testGetTargetSObjectType_NullRecordId_ReturnsNull() {
+        Test.startTest();
+        REDU_LightningResponse response = REDU_FormulaBuilder_LCTRL.getTargetSObjectType(null);
+        Test.stopTest();
+
+        System.assertNotEquals(null, response, 'Response must not be null');
+        System.assertEquals('null', response.responseData,
+            'Null recordId must return JSON null in responseData');
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // getObjectFields — Tests
+    // ─────────────────────────────────────────────────────────────────────────
+
+    /**
+     * @description Happy path: Account is a guaranteed sObject in every org.
+     *              The method must return a non-empty array of {apiName, label} objects.
+     */
+    @isTest
+    static void testGetObjectFields_Account_ReturnsFields() {
+        Test.startTest();
+        REDU_LightningResponse response = REDU_FormulaBuilder_LCTRL.getObjectFields('Account');
+        Test.stopTest();
+
+        System.assertNotEquals(null, response,              'Response must not be null');
+        System.assertNotEquals(null, response.responseData, 'Response data must not be null');
+
+        List<Object> fields = (List<Object>) JSON.deserializeUntyped(response.responseData);
+        System.assert(fields.size() > 0, 'Account must have at least one field');
+
+        // Spot-check that each entry has both keys
+        Map<String, Object> first = (Map<String, Object>) fields[0];
+        System.assert(first.containsKey('apiName'), 'Field entry must have apiName key');
+        System.assert(first.containsKey('label'),   'Field entry must have label key');
+    }
+
+    /**
+     * @description Standard SObject Organisation / User must also be describable.
+     */
+    @isTest
+    static void testGetObjectFields_Organization_ReturnsFields() {
+        Test.startTest();
+        REDU_LightningResponse response = REDU_FormulaBuilder_LCTRL.getObjectFields('Organization');
+        Test.stopTest();
+
+        System.assertNotEquals(null, response, 'Response must not be null');
+        List<Object> fields = (List<Object>) JSON.deserializeUntyped(response.responseData);
+        System.assert(fields.size() > 0, 'Organization must have at least one field');
+    }
+
+    /**
+     * @description Blank objectApiName must throw AuraHandledException.
+     */
+    @isTest
+    static void testGetObjectFields_BlankApiName_ThrowsException() {
+        Boolean exceptionThrown = false;
+
+        Test.startTest();
+        try {
+            REDU_FormulaBuilder_LCTRL.getObjectFields('');
+        } catch (AuraHandledException ex) {
+            exceptionThrown = true;
+        }
+        Test.stopTest();
+
+        System.assert(exceptionThrown,
+            'AuraHandledException expected for blank objectApiName');
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
     // verifyFormula — Happy-Path Tests
     // ─────────────────────────────────────────────────────────────────────────
 

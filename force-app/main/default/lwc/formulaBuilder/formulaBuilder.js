@@ -29,17 +29,19 @@ import { ShowToastEvent }    from 'lightning/platformShowToastEvent';
 import { getErrorMessage, logInfo } from 'c/loggingUtil';
 import { initCacheIdx }                              from 'c/lwcUtil';
 
-import apexGetFieldValue      from '@salesforce/apex/REDU_FormulaBuilder_LCTRL.getFieldValue';
-import apexUpdateFieldValue   from '@salesforce/apex/REDU_FormulaBuilder_LCTRL.updateFieldValue';
-import apexGetCustomMetaTypes from '@salesforce/apex/REDU_FormulaBuilder_LCTRL.getCustomMetadataTypes';
-import apexVerifyFormula      from '@salesforce/apex/REDU_FormulaBuilder_LCTRL.verifyFormula';
+import apexGetFieldValue       from '@salesforce/apex/REDU_FormulaBuilder_LCTRL.getFieldValue';
+import apexUpdateFieldValue    from '@salesforce/apex/REDU_FormulaBuilder_LCTRL.updateFieldValue';
+import apexVerifyFormula       from '@salesforce/apex/REDU_FormulaBuilder_LCTRL.verifyFormula';
+import apexGetTargetSObjectType from '@salesforce/apex/REDU_FormulaBuilder_LCTRL.getTargetSObjectType';
+import apexGetObjectFields      from '@salesforce/apex/REDU_FormulaBuilder_LCTRL.getObjectFields';
 
 // ─── Component identifier for log statements ──────────────────────────────────
 const COMPONENT = 'formulaBuilder';
 
-// ─── Hardcoded system-variable seeds (merged with org Custom Metadata Types) ──
+// ─── Standard Salesforce formula global variable names ────────────────────────
+// Permission and CustomMetadata are intentionally excluded.
 const SYSTEM_VARIABLE_SEEDS = [
-    'Organization', 'Permission', 'Profile', 'Setup', 'System', 'User', 'UserRole'
+    'Organization', 'Profile', 'Setup', 'System', 'User', 'UserRole'
 ];
 
 // ─── Full Salesforce formula function library (ISS-002768) ────────────────────
@@ -189,6 +191,13 @@ export default class FormulaBuilder extends LightningElement {
      */
     _pendingCursorPos = undefined;
 
+    /**
+     * @description API name of the target SObject resolved from the criteria record
+     *              via getTargetSObjectType().  Used to identify which system variable
+     *              option maps to the target object so Fields shows label (apiName) format.
+     */
+    _targetSObjectApiName = '';
+
     /** Cache-buster incremented by initCacheIdx to signal data reload */
     cacheIdx = 0;
 
@@ -204,26 +213,13 @@ export default class FormulaBuilder extends LightningElement {
     wiredObjectInfo({ error, data }) {
         if (data) {
             this.consoleLog('wiredObjectInfo — received data', { objectApiName: this.targetObjectApiName });
-            const fields = data.fields;
-
-            // Resolve the display label for the target field (shown in view mode)
-            if (this.targetFieldApiName && fields[this.targetFieldApiName]) {
-                this.fieldLabel = fields[this.targetFieldApiName].label;
+            // Resolve the display label for the target field (view mode only)
+            if (this.targetFieldApiName && data.fields[this.targetFieldApiName]) {
+                this.fieldLabel = data.fields[this.targetFieldApiName].label;
             }
-
-            // Build sorted combobox options: "label (apiName)"
-            this.fieldOptions = [
-                BLANK_OPTION,
-                ...Object.keys(fields)
-                    .sort()
-                    .map(apiName => ({
-                        label : `${fields[apiName].label} (${apiName})`,
-                        value : apiName
-                    }))
-            ];
+            // fieldOptions is now driven by system variable selection (_loadFieldsForSystemVariable)
         } else if (error) {
-            // Field list unavailable — log only; do not surface error toast
-            this.consoleLog('wiredObjectInfo — error (fields combobox will be empty)', error);
+            this.consoleLog('wiredObjectInfo — error', error);
         }
     }
 
@@ -244,8 +240,8 @@ export default class FormulaBuilder extends LightningElement {
         this._initFunctionOptions();
         this._initOperatorOptions();
 
-        // Async: merge org Custom MDTs into System Variables combobox
-        this._loadCustomMetadataTypes();
+        // Async: resolve target SObject type, then build System Variables + pre-load Fields
+        this._loadTargetSObjectType();
 
         // Async: load the current formula value when both object and field are set
         if (this.isConfigured) {
@@ -316,48 +312,92 @@ export default class FormulaBuilder extends LightningElement {
     }
 
     /**
-     * @description Calls getCustomMetadataTypes() imperatively and merges the
-     *              returned __mdt API names with the hardcoded SYSTEM_VARIABLE_SEEDS
-     *              into systemVariableOptions.  Falls back to seeds only on error.
+     * @description Calls getTargetSObjectType() imperatively with the current recordId
+     *              to resolve the target SObject API name from the criteria record.
+     *              On success, builds the System Variables options and pre-loads the
+     *              Fields combobox for the target SObject.
+     *              Falls back to seeds-only list if the call fails or recordId is absent.
      */
-    _loadCustomMetadataTypes() {
+    _loadTargetSObjectType() {
+        if (!this.recordId) {
+            this._buildSystemVariableOptions(null);
+            return;
+        }
+
         this.toggleSpinner(1);
 
-        apexGetCustomMetaTypes()
+        apexGetTargetSObjectType({ recordId: this.recordId })
             .then(response => {
-                const raw       = response.responseData;
-                const mdtNames  = raw ? JSON.parse(raw) : [];
-                const combined  = [
-                    ...SYSTEM_VARIABLE_SEEDS.map(s => ({ label: s, value: s })),
-                    ...mdtNames.map(name => ({ label: name, value: name }))
+                const sObjectType = response.responseData
+                    ? JSON.parse(response.responseData) : null;
+                this._targetSObjectApiName = sObjectType || '';
+                this._buildSystemVariableOptions(sObjectType);
+                // Pre-load fields for the target SObject so the Fields combobox is ready
+                if (sObjectType) {
+                    this._loadFieldsForSystemVariable(sObjectType, true);
+                }
+                this.consoleLog('_loadTargetSObjectType — resolved', { sObjectType });
+            })
+            .catch(error => {
+                this.consoleLog('_loadTargetSObjectType — error, using seeds only', error);
+                this._buildSystemVariableOptions(null);
+            })
+            .finally(() => this.toggleSpinner(-1));
+    }
+
+    /**
+     * @description Builds the System Variables combobox options.
+     *              Order: [Select an Option] → target SObject (if known) → standard seeds.
+     * @param {string|null} targetSObjectApiName  API name resolved from the criteria record
+     */
+    _buildSystemVariableOptions(targetSObjectApiName) {
+        const options = [BLANK_OPTION];
+        if (targetSObjectApiName) {
+            options.push({ label: targetSObjectApiName, value: targetSObjectApiName });
+        }
+        SYSTEM_VARIABLE_SEEDS.forEach(seed => options.push({ label: seed, value: seed }));
+        this.systemVariableOptions = options;
+        this.consoleLog('_buildSystemVariableOptions', {
+            targetSObj  : targetSObjectApiName,
+            totalOptions: options.length
+        });
+    }
+
+    /**
+     * @description Calls getObjectFields() imperatively and rebuilds fieldOptions.
+     *              For the target SObject the label format is "Field Label (apiName)".
+     *              For all other objects (Organization, User, etc.) only the apiName is shown.
+     * @param {string}  sysVarApiName    API name of the SObject whose fields to load
+     * @param {boolean} isTargetSObject  true = show "label (apiName)", false = apiName only
+     */
+    _loadFieldsForSystemVariable(sysVarApiName, isTargetSObject) {
+        this.toggleSpinner(1);
+
+        apexGetObjectFields({ objectApiName: sysVarApiName })
+            .then(response => {
+                const rawFields = response.responseData
+                    ? JSON.parse(response.responseData) : [];
+                this.fieldOptions = [
+                    BLANK_OPTION,
+                    ...rawFields
+                        .sort((a, b) => a.apiName.localeCompare(b.apiName))
+                        .map(f => ({
+                            label : isTargetSObject ? `${f.label} (${f.apiName})` : f.apiName,
+                            value : f.apiName
+                        }))
                 ];
-
-                // Deduplicate (seed names take precedence) and sort alphabetically
-                const seen   = new Set();
-                const unique = combined.filter(opt => {
-                    if (seen.has(opt.value)) { return false; }
-                    seen.add(opt.value);
-                    return true;
-                });
-                unique.sort((a, b) => a.label.localeCompare(b.label));
-
-                this.systemVariableOptions = [BLANK_OPTION, ...unique];
-                this.consoleLog('_loadCustomMetadataTypes — loaded', {
-                    totalOptions : unique.length,
-                    mdtCount     : mdtNames.length
+                this.consoleLog('_loadFieldsForSystemVariable — loaded', {
+                    object    : sysVarApiName,
+                    count     : rawFields.length,
+                    withLabels: isTargetSObject
                 });
             })
             .catch(error => {
-                this.consoleLog('_loadCustomMetadataTypes — error, falling back to seeds', error);
-                // Fall back to hardcoded seeds so the combobox is still usable
-                this.systemVariableOptions = [
-                    BLANK_OPTION,
-                    ...SYSTEM_VARIABLE_SEEDS.map(s => ({ label: s, value: s }))
-                ];
+                // Some global variable names (e.g. Setup, System) are not describable SObjects.
+                // Leave the existing field options unchanged rather than clearing them.
+                this.consoleLog('_loadFieldsForSystemVariable — error (fields unchanged)', error);
             })
-            .finally(() => {
-                this.toggleSpinner(-1);
-            });
+            .finally(() => this.toggleSpinner(-1));
     }
 
     /**
@@ -496,7 +536,10 @@ export default class FormulaBuilder extends LightningElement {
         if (!value) { return; }
         this._insertAtCursor(value);
         this._selectedSystemVariable = '';
-        this.consoleLog('handleSystemVariableSelect', { inserted: value });
+        // Update Fields combobox to show fields for the selected system variable
+        const isTargetSObject = value === this._targetSObjectApiName;
+        this._loadFieldsForSystemVariable(value, isTargetSObject);
+        this.consoleLog('handleSystemVariableSelect', { inserted: value, isTargetSObject });
     }
 
     /**
@@ -630,6 +673,10 @@ export default class FormulaBuilder extends LightningElement {
         this._selectedField          = '';
         this._selectedFunction       = '';
         this._selectedOperator       = '';
+        // Restore Fields combobox to the target SObject's fields (default state)
+        if (this._targetSObjectApiName) {
+            this._loadFieldsForSystemVariable(this._targetSObjectApiName, true);
+        }
         if (this.isConfigured) {
             this._loadFieldValue();
         }
