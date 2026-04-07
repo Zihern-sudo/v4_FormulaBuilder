@@ -117,7 +117,41 @@
     color: #706e6b;
 }
 
-/* ── 5b. Formula target label ─────────────────────────────────────────────── */
+/* ── 5b. Step 1→2 indicator ──────────────────────────────────────────────── */
+
+.formula-builder-step-indicator {
+    display       : flex;
+    align-items   : center;
+    gap           : 0.375rem;
+    padding       : 0.4rem 0.75rem;
+    background    : #f0f7ff;
+    border        : 1px solid #0176d3;
+    border-radius : 0.25rem;
+    font-size     : 0.8125rem;
+    line-height   : 1.4;
+}
+
+.formula-builder-step-indicator__icon {
+    flex-shrink: 0;
+}
+
+.formula-builder-step-indicator__text {
+    flex: 1;
+    color: #032d60;
+}
+
+.formula-builder-step-indicator__code {
+    font-family      : "SFMono-Regular", Consolas, "Liberation Mono", Menlo, Courier, monospace;
+    background-color : #d9e9fc;
+    padding          : 0 0.25rem;
+    border-radius    : 0.2rem;
+}
+
+.formula-builder-step-indicator__clear {
+    flex-shrink: 0;
+}
+
+/* ── 5d. Formula target label ─────────────────────────────────────────────── */
 
 .formula-builder-target-label {
     color: #706e6b;

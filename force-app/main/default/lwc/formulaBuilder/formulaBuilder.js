@@ -169,6 +169,12 @@ export default class FormulaBuilder extends LightningElement {
     /** Record Id typed into the inline verify input */
     @track _verifyRecordId = '';
 
+    /**
+     * @description System Variable selected in Step 1 but not yet inserted.
+     *              Cleared once the user selects a Field (Step 2) or clicks Cancel.
+     */
+    @track _pendingSystemVariable = '';
+
     // ─── Private State ────────────────────────────────────────────────────────
 
     /** Depth counter for nested async calls — spinner shows when > 0 */
@@ -404,6 +410,19 @@ export default class FormulaBuilder extends LightningElement {
         })
         .catch(error => {
             this.consoleLog('_loadDynamicTargetSObject — error, falling back to storage object', error);
+            // Surface a clear warning so the admin knows the App Builder config is wrong.
+            // The most common cause: the field path inside {} is invalid for this object,
+            // e.g. using a cross-object relationship that doesn't exist.
+            // Correct format for a DIRECT field: ObjectApiName__c{FieldApiName__c}
+            // Correct format for a RELATED field: BaseObject__c{Relation__r.FieldApiName__c}
+            this._showToast(
+                'warning',
+                'Target SObject Config Issue',
+                `Could not resolve the SObject from the "{}" field path. ` +
+                `Check "Target Object API Name" in the App Builder. ` +
+                `For a direct field use: ${storageObject}{FieldApiName__c}. ` +
+                `Falling back to ${storageObject}.`
+            );
             this._targetSObjectApiName = storageObject;
             this._buildSystemVariableOptions(storageObject);
             if (storageObject) { this._loadFieldsForSystemVariable(storageObject, true); }
@@ -513,11 +532,12 @@ export default class FormulaBuilder extends LightningElement {
      *              last saved / loaded snapshot.
      */
     handleCancelOnclick() {
-        this.isEditMode           = false;
-        this.isVerifyModalOpen    = false;
-        this.currentFormulaValue  = this.originalFormulaValue;
-        this.verifyModalResult    = null;
-        this._verifyRecordId      = '';
+        this.isEditMode              = false;
+        this.isVerifyModalOpen       = false;
+        this.currentFormulaValue     = this.originalFormulaValue;
+        this.verifyModalResult       = null;
+        this._verifyRecordId         = '';
+        this._pendingSystemVariable  = '';
         this.consoleLog('handleCancelOnclick — reverted to original, edit mode deactivated');
     }
 
@@ -593,32 +613,71 @@ export default class FormulaBuilder extends LightningElement {
     // ─── Combobox Insertion Handlers ─────────────────────────────────────────
 
     /**
-     * @description Inserts the selected System Variable / Custom Metadata Type
-     *              name at the current cursor position and resets the combobox.
+     * @description Step 1 of field insertion.
+     *              Stores the selected system variable as pending and updates the
+     *              Fields combobox — nothing is inserted into the formula yet.
+     *              The user must then pick a Field (Step 2) to complete the insertion.
+     *              Selecting "Select an Option" clears any pending selection.
      * @param {Event} event onchange event from the System Variables combobox
      */
     handleSystemVariableSelect(event) {
         const value = event.detail.value;
-        if (!value) { return; }
-        this._insertAtCursor(value);
         this._selectedSystemVariable = '';
-        // Update Fields combobox to show fields for the selected system variable
+        if (!value) {
+            this._pendingSystemVariable = '';
+            return;
+        }
+        // Save as step-1 pending — do NOT insert yet
+        this._pendingSystemVariable = value;
+        // Update Fields combobox so the user can pick step 2
         const isTargetSObject = value === this._targetSObjectApiName;
         this._loadFieldsForSystemVariable(value, isTargetSObject);
-        this.consoleLog('handleSystemVariableSelect', { inserted: value, isTargetSObject });
+        this.consoleLog('handleSystemVariableSelect — step 1 stored', { value, isTargetSObject });
     }
 
     /**
-     * @description Inserts the selected field API name at the current cursor
-     *              position and resets the combobox.
+     * @description Step 2 of field insertion.
+     *              If a System Variable was selected in Step 1 the two are combined
+     *              and inserted as a single token:
+     *                • Standard global seeds  → $Organization.Address
+     *                • Target SObject fields  → FieldApiName  (no prefix; formula is
+     *                                           evaluated in the context of that object)
+     *              If no System Variable is pending the field is inserted on its own.
      * @param {Event} event onchange event from the Fields combobox
      */
     handleFieldSelect(event) {
         const value = event.detail.value;
         if (!value) { return; }
-        this._insertAtCursor(value);
+
+        if (this._pendingSystemVariable) {
+            const isGlobalSeed = SYSTEM_VARIABLE_SEEDS.includes(this._pendingSystemVariable);
+            const token = isGlobalSeed
+                ? `$${this._pendingSystemVariable}.${value}`   // e.g. $Organization.Address
+                : value;                                        // target SObject — field only
+            this._insertAtCursor(token);
+            this.consoleLog('handleFieldSelect — step 2 inserted', {
+                sysVar    : this._pendingSystemVariable,
+                field     : value,
+                token,
+                isGlobalSeed
+            });
+            this._pendingSystemVariable = '';
+        } else {
+            // No system variable pending — insert the field name on its own
+            this._insertAtCursor(value);
+            this.consoleLog('handleFieldSelect — standalone insert', { value });
+        }
+
         this._selectedField = '';
-        this.consoleLog('handleFieldSelect', { inserted: value });
+    }
+
+    /**
+     * @description Clears the pending Step 1 system variable selection without
+     *              inserting anything, so the user can start the two-step flow again.
+     */
+    handleClearPendingSystemVariable() {
+        this._pendingSystemVariable = '';
+        this.consoleLog('handleClearPendingSystemVariable — cleared');
     }
 
     /**
@@ -734,11 +793,12 @@ export default class FormulaBuilder extends LightningElement {
      */
     handleRefresh() {
         this.consoleLog('handleRefresh — refreshing formula value and resetting selections');
-        // Reset all insertion-combobox selections to blank
+        // Reset all insertion-combobox selections and pending step-1 state
         this._selectedSystemVariable = '';
         this._selectedField          = '';
         this._selectedFunction       = '';
         this._selectedOperator       = '';
+        this._pendingSystemVariable  = '';
         // Restore Fields combobox to the target SObject's fields (default state)
         if (this._targetSObjectApiName) {
             this._loadFieldsForSystemVariable(this._targetSObjectApiName, true);
@@ -810,6 +870,22 @@ export default class FormulaBuilder extends LightningElement {
      */
     get isUpdateDisabled() {
         return this.isLoading;
+    }
+
+    /** True while a Step 1 system variable is pending (waiting for Step 2 field pick) */
+    get hasPendingSystemVariable() {
+        return !!this._pendingSystemVariable;
+    }
+
+    /**
+     * Display label for the pending system variable shown in the Step indicator.
+     * Global seeds get a '$' prefix (e.g. '$Organization'); target SObject shows as-is.
+     */
+    get pendingSystemVariableLabel() {
+        if (!this._pendingSystemVariable) { return ''; }
+        return SYSTEM_VARIABLE_SEEDS.includes(this._pendingSystemVariable)
+            ? `$${this._pendingSystemVariable}`
+            : this._pendingSystemVariable;
     }
 
     /**

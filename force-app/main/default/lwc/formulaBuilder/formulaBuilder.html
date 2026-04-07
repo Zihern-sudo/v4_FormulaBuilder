@@ -266,6 +266,32 @@
                             </div>
                             <!-- /combobox row -->
 
+                            <!-- ── Step indicator: shown when Step 1 is done ── -->
+                            <template if:true={hasPendingSystemVariable}>
+                                <div class="formula-builder-step-indicator slds-m-bottom_x-small">
+                                    <lightning-icon
+                                        icon-name="utility:steps"
+                                        size="xx-small"
+                                        alternative-text="Step"
+                                        class="formula-builder-step-indicator__icon">
+                                    </lightning-icon>
+                                    <span class="formula-builder-step-indicator__text">
+                                        <strong>Step 1 done</strong> &mdash;
+                                        <code class="formula-builder-step-indicator__code">{pendingSystemVariableLabel}</code>
+                                        selected. Now pick a <strong>Field</strong> to insert the combined token.
+                                    </span>
+                                    <lightning-button-icon
+                                        icon-name="utility:close"
+                                        size="xx-small"
+                                        variant="bare"
+                                        title="Clear Step 1 selection"
+                                        onclick={handleClearPendingSystemVariable}
+                                        class="formula-builder-step-indicator__clear">
+                                    </lightning-button-icon>
+                                </div>
+                            </template>
+                            <!-- /step indicator -->
+
                             <!-- ── Row 2: Formula target label ─────────────── -->
                             <p class="formula-builder-target-label
                                       slds-text-body_small slds-text-color_weak
