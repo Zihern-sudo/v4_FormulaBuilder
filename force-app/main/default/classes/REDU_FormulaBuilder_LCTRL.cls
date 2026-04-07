@@ -163,58 +163,63 @@ public with sharing class REDU_FormulaBuilder_LCTRL {
      * @param recordId       Id of the record to query
      * @return REDU_LightningResponse whose responseData is a JSON-serialised String or null
      */
-    @AuraEnabled(cacheable=true)
+    // Not cacheable — we need fresh data per record and cacheable=true has stricter
+    // platform restrictions that can cause ID binding failures with dynamic SOQL.
+    @AuraEnabled
     public static REDU_LightningResponse getTargetSObjectType(
         String objectApiName,
         String fieldPath,
-        Id     recordId
+        String recordId          // String (not Id) to avoid platform type-binding edge cases
     ) {
         try {
-            validateParams(
-                new List<String>{ objectApiName, fieldPath },
-                new List<String>{ 'objectApiName', 'fieldPath' }
-            );
-            if (recordId == null) {
-                throw new AuraHandledException('recordId is required.');
+            if (String.isBlank(objectApiName)) {
+                return new REDU_LightningResponse(false, 'objectApiName is required.', null);
+            }
+            if (String.isBlank(fieldPath)) {
+                return new REDU_LightningResponse(false, 'fieldPath is required.', null);
+            }
+            if (String.isBlank(recordId)) {
+                return new REDU_LightningResponse(false, 'recordId is required.', null);
             }
 
-            String safeObject = String.escapeSingleQuotes(objectApiName);
-            String safeField  = String.escapeSingleQuotes(fieldPath);
+            Id    safeId     = (Id) recordId;
+            String safeObj   = String.escapeSingleQuotes(objectApiName.trim());
+            String safeField = String.escapeSingleQuotes(fieldPath.trim());
 
             String query =
                 'SELECT ' + safeField +
-                ' FROM '  + safeObject +
-                ' WHERE Id = :recordId' +
+                ' FROM '  + safeObj   +
+                ' WHERE Id = :safeId'  +
                 ' LIMIT 1';
 
             List<SObject> results = Database.query(query);
             if (results.isEmpty()) {
-                return new REDU_LightningResponse(true, 'Not found', JSON.serialize(null));
+                return new REDU_LightningResponse(true, 'Record not found', JSON.serialize(null));
             }
 
             // Walk the dot-separated path to handle cross-object relationship fields.
             // E.g. 'Parent__r.GrandParent__r.Field__c' → getSObject('Parent__r')
             //        → getSObject('GrandParent__r') → get('Field__c')
-            List<String> parts   = fieldPath.split('\\.');
+            List<String> parts   = fieldPath.trim().split('\\.');
             SObject      current = results[0];
             for (Integer i = 0; i < parts.size() - 1; i++) {
                 if (current == null) { break; }
-                current = current.getSObject(parts[i]);
+                current = current.getSObject(parts[i].trim());
             }
 
-            String value = current != null
-                ? (String) current.get(parts[parts.size() - 1])
-                : null;
+            Object rawValue = current != null ? current.get(parts[parts.size() - 1].trim()) : null;
+            String value    = rawValue != null ? String.valueOf(rawValue) : null;
 
             return new REDU_LightningResponse(true, 'Success', JSON.serialize(value));
 
-        } catch (QueryException qex) {
-            String errorMsg = REDU_ObjectSecurity_UTIL.handleQueryException(qex, false);
-            throw REDU_Exception_UTIL.auraException(errorMsg);
-        } catch (AuraHandledException ahe) {
-            throw ahe;
         } catch (Exception exp) {
-            throw REDU_Exception_UTIL.auraException(exp.getMessage(), exp.getLineNumber(), null);
+            // Return error as a non-success response so JS can show the exact message.
+            // This avoids a silent fallback and makes misconfiguration diagnosable.
+            return new REDU_LightningResponse(
+                false,
+                exp.getTypeName() + ': ' + exp.getMessage(),
+                null
+            );
         }
     }
 

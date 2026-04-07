@@ -260,7 +260,7 @@ public class REDU_FormulaBuilder_LCTRL_TEST {
 
     /**
      * @description Happy path: direct field (no relationship traversal).
-     *              Uses Account.Industry as a simple one-part path.
+     *              Uses Account.Industry which is set to 'Technology' in @TestSetup.
      */
     @isTest
     static void testGetTargetSObjectType_DirectField_ReturnsValue() {
@@ -273,47 +273,44 @@ public class REDU_FormulaBuilder_LCTRL_TEST {
         Test.stopTest();
 
         System.assertNotEquals(null, response, 'Response must not be null');
-        // JSON.serialize wraps strings in quotes; deserialise to compare cleanly
+        System.assertEquals(true, response.isSuccess, 'Response must be successful');
         String value = (String) JSON.deserializeUntyped(response.responseData);
         System.assertEquals('Technology', value,
             'Industry field must return the value set in @TestSetup');
     }
 
     /**
-     * @description Blank objectApiName must throw AuraHandledException.
+     * @description Blank objectApiName must return a non-success response (not throw).
      */
     @isTest
-    static void testGetTargetSObjectType_BlankObjectApiName_ThrowsException() {
+    static void testGetTargetSObjectType_BlankObjectApiName_ReturnsNonSuccess() {
         Account acc = getTestAccount();
-        Boolean exceptionThrown = false;
 
         Test.startTest();
-        try {
-            REDU_FormulaBuilder_LCTRL.getTargetSObjectType('', 'Industry', acc.Id);
-        } catch (AuraHandledException ex) {
-            exceptionThrown = true;
-        }
+        REDU_LightningResponse response = REDU_FormulaBuilder_LCTRL.getTargetSObjectType(
+            '', 'Industry', acc.Id
+        );
         Test.stopTest();
 
-        System.assert(exceptionThrown, 'AuraHandledException expected for blank objectApiName');
+        System.assertNotEquals(null, response, 'Response must not be null');
+        System.assertEquals(false, response.isSuccess,
+            'Blank objectApiName must return isSuccess = false');
     }
 
     /**
-     * @description Null recordId must throw AuraHandledException.
+     * @description Blank recordId must return a non-success response (not throw).
      */
     @isTest
-    static void testGetTargetSObjectType_NullRecordId_ThrowsException() {
-        Boolean exceptionThrown = false;
-
+    static void testGetTargetSObjectType_BlankRecordId_ReturnsNonSuccess() {
         Test.startTest();
-        try {
-            REDU_FormulaBuilder_LCTRL.getTargetSObjectType('Account', 'Industry', null);
-        } catch (AuraHandledException ex) {
-            exceptionThrown = true;
-        }
+        REDU_LightningResponse response = REDU_FormulaBuilder_LCTRL.getTargetSObjectType(
+            'Account', 'Industry', null
+        );
         Test.stopTest();
 
-        System.assert(exceptionThrown, 'AuraHandledException expected for null recordId');
+        System.assertNotEquals(null, response, 'Response must not be null');
+        System.assertEquals(false, response.isSuccess,
+            'Null recordId must return isSuccess = false');
     }
 
     // ─────────────────────────────────────────────────────────────────────────

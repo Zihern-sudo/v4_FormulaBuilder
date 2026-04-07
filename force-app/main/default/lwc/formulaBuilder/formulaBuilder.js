@@ -395,9 +395,24 @@ export default class FormulaBuilder extends LightningElement {
         apexGetTargetSObjectType({
             objectApiName : storageObject,
             fieldPath     : fieldPath,
-            recordId      : this.recordId
+            recordId      : this.recordId  // passed as String to avoid Id binding issues
         })
         .then(response => {
+            if (!response.isSuccess) {
+                // Apex returned a non-success response with the actual error message.
+                // Show it so the admin can diagnose the misconfiguration.
+                this.consoleLog('_loadDynamicTargetSObject — Apex non-success', response.message);
+                this._showToast(
+                    'warning',
+                    'App Builder Config Issue',
+                    'Could not resolve target SObject from field "' + fieldPath +
+                    '" on ' + storageObject + '. Error: ' + response.message
+                );
+                this._targetSObjectApiName = storageObject;
+                this._buildSystemVariableOptions(storageObject);
+                if (storageObject) { this._loadFieldsForSystemVariable(storageObject, true); }
+                return;
+            }
             const resolved = response.responseData ? JSON.parse(response.responseData) : null;
             this._targetSObjectApiName = resolved || storageObject;
             this._buildSystemVariableOptions(this._targetSObjectApiName);
@@ -409,18 +424,8 @@ export default class FormulaBuilder extends LightningElement {
             });
         })
         .catch(error => {
-            this.consoleLog('_loadDynamicTargetSObject — error, falling back to storage object', error);
-            // Note: do NOT use bare { } in toast messages — LWC's toast renderer
-            // treats them as empty binding tokens and strips the content.
-            this._showToast(
-                'warning',
-                'App Builder Config Issue',
-                'Could not resolve the target SObject from field path "' + fieldPath + '" ' +
-                'on ' + storageObject + '. ' +
-                'Update Target Object API Name. ' +
-                'Direct field example: ' + storageObject + ' followed by the field in square brackets, e.g. reduivy__SObjectType__c. ' +
-                'Falling back to ' + storageObject + '.'
-            );
+            // Unexpected JS-level failure (network, etc.)
+            this.consoleLog('_loadDynamicTargetSObject — unexpected error', error);
             this._targetSObjectApiName = storageObject;
             this._buildSystemVariableOptions(storageObject);
             if (storageObject) { this._loadFieldsForSystemVariable(storageObject, true); }
