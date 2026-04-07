@@ -410,18 +410,16 @@ export default class FormulaBuilder extends LightningElement {
         })
         .catch(error => {
             this.consoleLog('_loadDynamicTargetSObject — error, falling back to storage object', error);
-            // Surface a clear warning so the admin knows the App Builder config is wrong.
-            // The most common cause: the field path inside {} is invalid for this object,
-            // e.g. using a cross-object relationship that doesn't exist.
-            // Correct format for a DIRECT field: ObjectApiName__c{FieldApiName__c}
-            // Correct format for a RELATED field: BaseObject__c{Relation__r.FieldApiName__c}
+            // Note: do NOT use bare { } in toast messages — LWC's toast renderer
+            // treats them as empty binding tokens and strips the content.
             this._showToast(
                 'warning',
-                'Target SObject Config Issue',
-                `Could not resolve the SObject from the "{}" field path. ` +
-                `Check "Target Object API Name" in the App Builder. ` +
-                `For a direct field use: ${storageObject}{FieldApiName__c}. ` +
-                `Falling back to ${storageObject}.`
+                'App Builder Config Issue',
+                'Could not resolve the target SObject from field path "' + fieldPath + '" ' +
+                'on ' + storageObject + '. ' +
+                'Update Target Object API Name. ' +
+                'Direct field example: ' + storageObject + ' followed by the field in square brackets, e.g. reduivy__SObjectType__c. ' +
+                'Falling back to ' + storageObject + '.'
             );
             this._targetSObjectApiName = storageObject;
             this._buildSystemVariableOptions(storageObject);
