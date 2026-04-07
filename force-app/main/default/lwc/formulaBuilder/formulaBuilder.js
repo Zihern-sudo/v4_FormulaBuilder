@@ -469,7 +469,7 @@ export default class FormulaBuilder extends LightningElement {
     _loadFieldsForSystemVariable(sysVarApiName, isTargetSObject) {
         this.toggleSpinner(1);
 
-        apexGetObjectFields({ objectApiName: sysVarApiName })
+        return apexGetObjectFields({ objectApiName: sysVarApiName })
             .then(response => {
                 const rawFields = response.responseData
                     ? JSON.parse(response.responseData) : [];
@@ -504,7 +504,7 @@ export default class FormulaBuilder extends LightningElement {
     _loadFieldValue() {
         this.toggleSpinner(1);
 
-        apexGetFieldValue({
+        return apexGetFieldValue({
             objectApiName : this._storageObjectApiName,
             fieldApiName  : this.targetFieldApiName,
             recordId      : this.recordId
@@ -825,25 +825,51 @@ export default class FormulaBuilder extends LightningElement {
 
     /**
      * @description Reloads the formula value and resets all combobox selections
-     *              back to the blank placeholder.  Called both by the Refresh
-     *              icon button in the card header and by lightning/refresh.
+     *              back to the blank placeholder.
+     *
+     *              Dual-role handler:
+     *                1. onclick for the Refresh icon button in the card header.
+     *                2. Callback registered via registerRefreshHandler so the
+     *                   component handles platform-level refresh events itself.
+     *
+     *              Returning a Promise is the contract for registerRefreshHandler —
+     *              it tells the platform "I handled this refresh; no page reload
+     *              needed."  Without a returned Promise the platform sometimes
+     *              falls back to a full-page reload.
+     *
+     * @param {Event} [event] Click event when invoked from the refresh button;
+     *                        absent when invoked by the platform refresh handler.
+     * @return {Promise} Resolves once all component data has been reloaded.
      */
-    handleRefresh() {
+    handleRefresh(event) {
+        // Stop the click from bubbling outside the component when triggered
+        // by the refresh button (event is absent when called by registerRefreshHandler).
+        if (event && typeof event.stopPropagation === 'function') {
+            event.stopPropagation();
+        }
+
         this.consoleLog('handleRefresh — refreshing formula value and resetting selections');
-        // Reset all insertion-combobox selections and pending step-1 state
+
+        // Reset all insertion-combobox selections and pending two-step state
         this._selectedSystemVariable = '';
         this._selectedField          = '';
         this._selectedFunction       = '';
         this._selectedOperator       = '';
         this._pendingSystemVariable  = '';
         this._pendingField           = '';
-        // Restore Fields combobox to the target SObject's fields (default state)
+
+        // Collect async reload tasks and return their combined Promise.
+        // The platform's registerRefreshHandler waits for this Promise before
+        // declaring the refresh complete, preventing it from also doing a full
+        // page reload.
+        const tasks = [];
         if (this._targetSObjectApiName) {
-            this._loadFieldsForSystemVariable(this._targetSObjectApiName, true);
+            tasks.push(this._loadFieldsForSystemVariable(this._targetSObjectApiName, true));
         }
         if (this.isConfigured) {
-            this._loadFieldValue();
+            tasks.push(this._loadFieldValue());
         }
+        return tasks.length > 0 ? Promise.all(tasks) : Promise.resolve();
     }
 
     // ─── Computed Getters ─────────────────────────────────────────────────────
