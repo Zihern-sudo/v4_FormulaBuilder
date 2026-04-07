@@ -949,10 +949,10 @@ export default class FormulaBuilder extends LightningElement {
      */
     get pendingToken() {
         if (!this._pendingSystemVariable || !this._pendingField) { return ''; }
-        const isGlobalSeed = SYSTEM_VARIABLE_SEEDS.includes(this._pendingSystemVariable);
-        return isGlobalSeed
-            ? `$${this._pendingSystemVariable}.${this._pendingField}`
-            : this._pendingField;
+        // Both global seeds ($Organization.Address) and target SObject fields
+        // ($reduivy__Individual_Program_Application__c.CreatedDate) use the
+        // $ObjectApiName.FieldApiName format so formulas can reference them correctly.
+        return `$${this._pendingSystemVariable}.${this._pendingField}`;
     }
 
     /**
