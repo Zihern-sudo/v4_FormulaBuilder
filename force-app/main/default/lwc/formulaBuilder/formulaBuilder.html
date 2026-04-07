@@ -210,6 +210,7 @@
                                     </lightning-layout-item>
 
                                     <!-- Combobox 2: Fields (only if isConfigured) -->
+                                    <!-- Disabled until Step 1 (System Variable) is selected -->
                                     <template if:true={isConfigured}>
                                         <lightning-layout-item
                                             flexibility="auto"
@@ -218,11 +219,11 @@
                                             <lightning-combobox
                                                 label="Fields"
                                                 variant="label-stacked"
-                                                placeholder="Select an Option"
+                                                placeholder={fieldsPlaceholder}
                                                 options={fieldOptions}
                                                 value={_selectedField}
                                                 onchange={handleFieldSelect}
-                                                disabled={isLoading}
+                                                disabled={isFieldsDisabled}
                                                 class="formula-builder-combobox">
                                             </lightning-combobox>
                                         </lightning-layout-item>
@@ -266,31 +267,67 @@
                             </div>
                             <!-- /combobox row -->
 
-                            <!-- ── Step indicator: shown when Step 1 is done ── -->
-                            <template if:true={hasPendingSystemVariable}>
+                            <!-- ── Step 1 indicator: sysvar chosen, waiting for field ── -->
+                            <template if:true={showStep1Indicator}>
                                 <div class="formula-builder-step-indicator slds-m-bottom_x-small">
                                     <lightning-icon
                                         icon-name="utility:steps"
                                         size="xx-small"
-                                        alternative-text="Step"
+                                        alternative-text="Step 1"
                                         class="formula-builder-step-indicator__icon">
                                     </lightning-icon>
                                     <span class="formula-builder-step-indicator__text">
-                                        <strong>Step 1 done</strong> &mdash;
+                                        <strong>Step 1 of 2</strong> &mdash;
                                         <code class="formula-builder-step-indicator__code">{pendingSystemVariableLabel}</code>
-                                        selected. Now pick a <strong>Field</strong> to insert the combined token.
+                                        selected. Now pick a <strong>Field</strong> to preview the token.
                                     </span>
                                     <lightning-button-icon
                                         icon-name="utility:close"
                                         size="xx-small"
                                         variant="bare"
-                                        title="Clear Step 1 selection"
+                                        title="Clear selection and start over"
                                         onclick={handleClearPendingSystemVariable}
                                         class="formula-builder-step-indicator__clear">
                                     </lightning-button-icon>
                                 </div>
                             </template>
-                            <!-- /step indicator -->
+                            <!-- /step 1 indicator -->
+
+                            <!-- ── Token preview: both sysvar + field chosen ─────── -->
+                            <!-- The user sees the combined token and must click Insert -->
+                            <template if:true={hasPendingToken}>
+                                <div class="formula-builder-token-preview slds-m-bottom_x-small">
+                                    <div class="formula-builder-token-preview__info">
+                                        <span class="formula-builder-token-preview__label">
+                                            You have selected:
+                                        </span>
+                                        <code class="formula-builder-token-preview__token">
+                                            {pendingToken}
+                                        </code>
+                                    </div>
+                                    <div class="formula-builder-token-preview__actions">
+                                        <lightning-button
+                                            label="Insert"
+                                            variant="brand"
+                                            icon-name="utility:insert_tag_field"
+                                            icon-position="left"
+                                            title="Insert the selected token into the formula"
+                                            onclick={handleInsertToken}
+                                            disabled={isLoading}
+                                            class="formula-builder-token-preview__insert-btn">
+                                        </lightning-button>
+                                        <lightning-button-icon
+                                            icon-name="utility:close"
+                                            size="small"
+                                            variant="bare"
+                                            title="Clear selection and start over"
+                                            onclick={handleClearPendingSystemVariable}
+                                            class="formula-builder-token-preview__clear-btn">
+                                        </lightning-button-icon>
+                                    </div>
+                                </div>
+                            </template>
+                            <!-- /token preview -->
 
                             <!-- ── Row 2: Formula target label ─────────────── -->
                             <p class="formula-builder-target-label

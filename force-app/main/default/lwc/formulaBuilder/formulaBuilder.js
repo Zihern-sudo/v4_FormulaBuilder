@@ -170,10 +170,18 @@ export default class FormulaBuilder extends LightningElement {
     @track _verifyRecordId = '';
 
     /**
-     * @description System Variable selected in Step 1 but not yet inserted.
-     *              Cleared once the user selects a Field (Step 2) or clicks Cancel.
+     * @description System Variable selected in Step 1.
+     *              Cleared once the user inserts the combined token or clicks Clear.
      */
     @track _pendingSystemVariable = '';
+
+    /**
+     * @description Field selected in Step 2.
+     *              Only settable when _pendingSystemVariable is non-empty (enforced in
+     *              handleFieldSelect).  Cleared together with _pendingSystemVariable
+     *              on Insert or Clear.
+     */
+    @track _pendingField = '';
 
     // ─── Private State ────────────────────────────────────────────────────────
 
@@ -541,6 +549,9 @@ export default class FormulaBuilder extends LightningElement {
         this.verifyModalResult       = null;
         this._verifyRecordId         = '';
         this._pendingSystemVariable  = '';
+        this._pendingField           = '';
+        this._selectedSystemVariable = '';
+        this._selectedField          = '';
         this.consoleLog('handleCancelOnclick — reverted to original, edit mode deactivated');
     }
 
@@ -625,14 +636,21 @@ export default class FormulaBuilder extends LightningElement {
      */
     handleSystemVariableSelect(event) {
         const value = event.detail.value;
-        this._selectedSystemVariable = '';
         if (!value) {
-            this._pendingSystemVariable = '';
+            // User cleared the combobox — wipe the entire pending two-step state
+            this._selectedSystemVariable = '';
+            this._selectedField          = '';
+            this._pendingSystemVariable  = '';
+            this._pendingField           = '';
             return;
         }
-        // Save as step-1 pending — do NOT insert yet
-        this._pendingSystemVariable = value;
-        // Update Fields combobox so the user can pick step 2
+        // Step 1: store the system variable and update the Fields combobox.
+        // Keep _selectedSystemVariable set so the combobox shows the chosen value.
+        // Also reset any previous field selection so Step 2 must be redone.
+        this._selectedSystemVariable = value;
+        this._pendingSystemVariable  = value;
+        this._pendingField           = '';
+        this._selectedField          = '';
         const isTargetSObject = value === this._targetSObjectApiName;
         this._loadFieldsForSystemVariable(value, isTargetSObject);
         this.consoleLog('handleSystemVariableSelect — step 1 stored', { value, isTargetSObject });
@@ -650,28 +668,41 @@ export default class FormulaBuilder extends LightningElement {
      */
     handleFieldSelect(event) {
         const value = event.detail.value;
-        if (!value) { return; }
-
-        if (this._pendingSystemVariable) {
-            const isGlobalSeed = SYSTEM_VARIABLE_SEEDS.includes(this._pendingSystemVariable);
-            const token = isGlobalSeed
-                ? `$${this._pendingSystemVariable}.${value}`   // e.g. $Organization.Address
-                : value;                                        // target SObject — field only
-            this._insertAtCursor(token);
-            this.consoleLog('handleFieldSelect — step 2 inserted', {
-                sysVar    : this._pendingSystemVariable,
-                field     : value,
-                token,
-                isGlobalSeed
-            });
-            this._pendingSystemVariable = '';
-        } else {
-            // No system variable pending — insert the field name on its own
-            this._insertAtCursor(value);
-            this.consoleLog('handleFieldSelect — standalone insert', { value });
+        if (!value) {
+            this._pendingField  = '';
+            this._selectedField = '';
+            return;
         }
+        // Enforce two-step: a system variable MUST be selected first.
+        // The combobox is also disabled in the template, so this is a safety guard.
+        if (!this._pendingSystemVariable) { return; }
 
-        this._selectedField = '';
+        // Step 2: store the field selection so the user can preview the token
+        // and explicitly click Insert to commit it to the formula.
+        this._pendingField  = value;
+        this._selectedField = value;
+        this.consoleLog('handleFieldSelect — step 2 stored (pending insert)', {
+            sysVar: this._pendingSystemVariable,
+            field : value,
+            token : this.pendingToken
+        });
+    }
+
+    /**
+     * @description Inserts the previewed two-step token into the formula textarea
+     *              when the user explicitly clicks the Insert button.
+     *              Both pending states are cleared after insertion.
+     */
+    handleInsertToken() {
+        if (!this.hasPendingToken) { return; }
+        const token = this.pendingToken;
+        this._insertAtCursor(token);
+        this.consoleLog('handleInsertToken — inserted', { token });
+        // Reset all two-step state
+        this._selectedSystemVariable = '';
+        this._selectedField          = '';
+        this._pendingSystemVariable  = '';
+        this._pendingField           = '';
     }
 
     /**
@@ -679,7 +710,10 @@ export default class FormulaBuilder extends LightningElement {
      *              inserting anything, so the user can start the two-step flow again.
      */
     handleClearPendingSystemVariable() {
-        this._pendingSystemVariable = '';
+        this._pendingSystemVariable  = '';
+        this._pendingField           = '';
+        this._selectedSystemVariable = '';
+        this._selectedField          = '';
         this.consoleLog('handleClearPendingSystemVariable — cleared');
     }
 
@@ -802,6 +836,7 @@ export default class FormulaBuilder extends LightningElement {
         this._selectedFunction       = '';
         this._selectedOperator       = '';
         this._pendingSystemVariable  = '';
+        this._pendingField           = '';
         // Restore Fields combobox to the target SObject's fields (default state)
         if (this._targetSObjectApiName) {
             this._loadFieldsForSystemVariable(this._targetSObjectApiName, true);
@@ -889,6 +924,54 @@ export default class FormulaBuilder extends LightningElement {
         return SYSTEM_VARIABLE_SEEDS.includes(this._pendingSystemVariable)
             ? `$${this._pendingSystemVariable}`
             : this._pendingSystemVariable;
+    }
+
+    /**
+     * True when Step 1 is done but Step 2 (field) is not yet chosen.
+     * Used to show the "pick a field" step-indicator banner.
+     */
+    get showStep1Indicator() {
+        return this.hasPendingSystemVariable && !this._pendingField;
+    }
+
+    /**
+     * True when both a system variable AND a field have been chosen.
+     * Used to show the token-preview panel with the Insert button.
+     */
+    get hasPendingToken() {
+        return !!(this._pendingSystemVariable && this._pendingField);
+    }
+
+    /**
+     * The combined formula token that will be inserted on Insert click.
+     * Standard global seeds   → $Organization.Address
+     * Target SObject fields   → FieldApiName (no prefix)
+     */
+    get pendingToken() {
+        if (!this._pendingSystemVariable || !this._pendingField) { return ''; }
+        const isGlobalSeed = SYSTEM_VARIABLE_SEEDS.includes(this._pendingSystemVariable);
+        return isGlobalSeed
+            ? `$${this._pendingSystemVariable}.${this._pendingField}`
+            : this._pendingField;
+    }
+
+    /**
+     * True when the Fields combobox should be disabled.
+     * Enforces the two-step rule: a system variable must be chosen first.
+     */
+    get isFieldsDisabled() {
+        return this.isLoading || !this._pendingSystemVariable;
+    }
+
+    /**
+     * Placeholder text for the Fields combobox.
+     * When no system variable is selected the placeholder guides the user
+     * to complete Step 1 before attempting Step 2.
+     */
+    get fieldsPlaceholder() {
+        return this._pendingSystemVariable
+            ? 'Select a Field'
+            : 'Select a System Variable first';
     }
 
     /**
