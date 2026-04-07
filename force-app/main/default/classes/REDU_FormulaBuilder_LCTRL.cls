@@ -212,6 +212,37 @@ public with sharing class REDU_FormulaBuilder_LCTRL {
 
             return new REDU_LightningResponse(true, 'Success', JSON.serialize(value));
 
+        } catch (System.QueryException qex) {
+            // On a bad field/column name, describe the object's String fields so the
+            // admin can identify the correct API name from the error toast.
+            String hint = '';
+            try {
+                String baseObj = objectApiName != null ? objectApiName.trim() : '';
+                // For cross-object paths, the last segment object is unknown — describe base.
+                Schema.DescribeSObjectResult[] dr = Schema.describeSObjects(new List<String>{ baseObj });
+                Map<String, Schema.SObjectField> fm = dr[0].fields.getMap();
+                List<String> textFields = new List<String>();
+                for (String key : fm.keySet()) {
+                    Schema.DescribeFieldResult dfr = fm.get(key).getDescribe();
+                    Schema.DisplayType dt = dfr.getType();
+                    if (dt == Schema.DisplayType.STRING || dt == Schema.DisplayType.TEXTAREA
+                            || dt == Schema.DisplayType.PICKLIST || dt == Schema.DisplayType.REFERENCE) {
+                        textFields.add(dfr.getName());
+                    }
+                }
+                textFields.sort();
+                if (!textFields.isEmpty()) {
+                    hint = ' Available text/picklist/lookup fields on ' + baseObj + ': '
+                         + String.join(textFields, ', ') + '.';
+                }
+            } catch (Exception descEx) {
+                // ignore describe failure — just omit the hint
+            }
+            return new REDU_LightningResponse(
+                false,
+                qex.getMessage() + hint,
+                null
+            );
         } catch (Exception exp) {
             // Return error as a non-success response so JS can show the exact message.
             // This avoids a silent fallback and makes misconfiguration diagnosable.
