@@ -304,8 +304,8 @@ public with sharing class REDU_FormulaBuilder_LCTRL {
      */
     @AuraEnabled
     public static REDU_LightningResponse verifyFormula(
-        String formula,
-        String objectApiName,
+        String formulaStr,      // named formulaStr to avoid shadowing the Formula builder class
+        String objectApiName,   // (Apex is case-insensitive: 'formula' would resolve to formulaStr)
         Id recordId
     ) {
         try {
@@ -315,7 +315,7 @@ public with sharing class REDU_FormulaBuilder_LCTRL {
             };
 
             // ── Guard: empty formula ─────────────────────────────────────────
-            if (String.isBlank(formula)) {
+            if (String.isBlank(formulaStr)) {
                 result.put('isValid',      false);
                 result.put('errorMessage', 'Formula cannot be empty.');
                 return new REDU_LightningResponse(true, 'Verification Result', JSON.serialize(result));
@@ -348,15 +348,15 @@ public with sharing class REDU_FormulaBuilder_LCTRL {
                 FormulaEval.FormulaReturnType.String
             };
 
-            String  lastError   = null;
-            Boolean builtOk     = false;
+            String  lastError = null;
+            Boolean builtOk   = false;
 
             for (FormulaEval.FormulaReturnType rt : returnTypes) {
                 try {
                     Formula.builder()
                         .withReturnType(rt)
                         .withType(sobjType)
-                        .withFormula(formula.trim())
+                        .withFormula(formulaStr.trim())
                         .build();
                     builtOk = true;
                     break;

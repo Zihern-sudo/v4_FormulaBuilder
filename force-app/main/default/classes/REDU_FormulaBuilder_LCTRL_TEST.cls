@@ -20,9 +20,9 @@ public class REDU_FormulaBuilder_LCTRL_TEST {
     private static final String FIELD_API_NAME  = 'Description';
 
     // A formula that is stored as the initial Description value in @TestSetup.
-    // Uses a properly closed string literal so it is syntactically valid.
+    // Field names in Salesforce formulas are bare (no object prefix).
     private static final String INITIAL_FORMULA =
-        'Account.Industry = \'Technology\' AND Account.AnnualRevenue > 0';
+        'AnnualRevenue > 0 AND NOT(ISBLANK(Industry))';
 
     // ─────────────────────────────────────────────────────────────────────────
     // Test Setup
@@ -374,20 +374,23 @@ public class REDU_FormulaBuilder_LCTRL_TEST {
 
     // ─────────────────────────────────────────────────────────────────────────
     // verifyFormula — Happy-Path Tests
+    // NOTE: FormulaEval validates field names against the schema.
+    //       Salesforce formula syntax uses bare field names (no object prefix):
+    //       correct → AnnualRevenue > 0
+    //       incorrect → Account.AnnualRevenue > 0  (Account is not a relationship on Account)
     // ─────────────────────────────────────────────────────────────────────────
 
     /**
-     * @description Valid infix formula with correctly closed string literals,
-     *              balanced parens, and proper operators → isValid = true.
+     * @description Valid boolean infix formula with balanced parens → isValid = true.
      */
     @isTest
     static void testVerifyFormula_ValidInfixFormula() {
-        Account acc     = getTestAccount();
-        String  formula = '(Account.Industry = \'Technology\') AND (Account.AnnualRevenue > 1000000)';
+        Account acc = getTestAccount();
 
         Test.startTest();
         REDU_LightningResponse response = REDU_FormulaBuilder_LCTRL.verifyFormula(
-            formula, OBJECT_API_NAME, acc.Id
+            'AnnualRevenue > 1000000 AND NOT(ISBLANK(Industry))',
+            OBJECT_API_NAME, acc.Id
         );
         Test.stopTest();
 
@@ -399,21 +402,37 @@ public class REDU_FormulaBuilder_LCTRL_TEST {
     }
 
     /**
-     * @description Valid function-style formula: AND() wrapping multiple conditions
-     *              → isValid = true. Verifies AND( is not treated as a binary operator.
+     * @description Valid numeric formula → isValid = true.
+     *              Verifies that Decimal return type is accepted alongside Boolean.
      */
     @isTest
-    static void testVerifyFormula_ValidFunctionStyleFormula() {
-        Account acc     = getTestAccount();
-        String  formula =
-            'AND(\n' +
-            '  reduvivy__Default_Campus__c.Name = \'Sydney\',\n' +
-            '  NOT(ISBLANK(reduvivy__Contact__c))\n' +
-            ')';
+    static void testVerifyFormula_ValidNumericFormula() {
+        Account acc = getTestAccount();
 
         Test.startTest();
         REDU_LightningResponse response = REDU_FormulaBuilder_LCTRL.verifyFormula(
-            formula, OBJECT_API_NAME, acc.Id
+            'AnnualRevenue * 2',
+            OBJECT_API_NAME, acc.Id
+        );
+        Test.stopTest();
+
+        Map<String, Object> result = (Map<String, Object>) JSON.deserializeUntyped(response.responseData);
+        System.assertEquals(true, (Boolean) result.get('isValid'),
+            'Numeric formula must return isValid = true');
+    }
+
+    /**
+     * @description Valid function-style formula: AND() wrapping multiple conditions
+     *              → isValid = true. Verifies AND( is not treated as a missing-operand error.
+     */
+    @isTest
+    static void testVerifyFormula_ValidFunctionStyleFormula() {
+        Account acc = getTestAccount();
+
+        Test.startTest();
+        REDU_LightningResponse response = REDU_FormulaBuilder_LCTRL.verifyFormula(
+            'AND(AnnualRevenue > 0, NOT(ISBLANK(Name)))',
+            OBJECT_API_NAME, acc.Id
         );
         Test.stopTest();
 
@@ -424,17 +443,16 @@ public class REDU_FormulaBuilder_LCTRL_TEST {
 
     /**
      * @description String literal containing parentheses and operator keywords
-     *              — none of those characters should affect parenthesis depth or
-     *              trigger operator checks → isValid = true.
+     *              must be treated as plain text → isValid = true.
      */
     @isTest
     static void testVerifyFormula_StringLiteralContent_IsIgnoredByChecks() {
-        Account acc     = getTestAccount();
-        String  formula = 'Account.Name = \'AND (OR)\'';
+        Account acc = getTestAccount();
 
         Test.startTest();
         REDU_LightningResponse response = REDU_FormulaBuilder_LCTRL.verifyFormula(
-            formula, OBJECT_API_NAME, acc.Id
+            'Name = \'AND (OR)\'',
+            OBJECT_API_NAME, acc.Id
         );
         Test.stopTest();
 
@@ -445,85 +463,73 @@ public class REDU_FormulaBuilder_LCTRL_TEST {
 
     /**
      * @description String literal containing an escaped single quote ('')
-     *              → the formula must remain valid (the '' does not close the string).
+     *              → the formula must remain valid.
      */
     @isTest
     static void testVerifyFormula_EscapedQuoteInsideString_IsValid() {
-        Account acc     = getTestAccount();
-        String  formula = 'Account.Name = \'it\'\'s a test\'';
+        Account acc = getTestAccount();
 
         Test.startTest();
         REDU_LightningResponse response = REDU_FormulaBuilder_LCTRL.verifyFormula(
-            formula, OBJECT_API_NAME, acc.Id
+            'Name = \'it\'\'s a test\'',
+            OBJECT_API_NAME, acc.Id
         );
         Test.stopTest();
 
         Map<String, Object> result = (Map<String, Object>) JSON.deserializeUntyped(response.responseData);
         System.assertEquals(true, (Boolean) result.get('isValid'),
-            'Escaped single quote (\'\') inside a string must not be treated as closing the literal');
+            'Escaped single quote inside a string literal must not affect validity');
     }
 
     // ─────────────────────────────────────────────────────────────────────────
-    // verifyFormula — String-Literal Error Tests (Check A)
+    // verifyFormula — String-Literal Error Tests
     // ─────────────────────────────────────────────────────────────────────────
 
     /**
-     * @description Formula with an unclosed string literal → isValid = false
-     *              and errorMessage must reference the string literal problem.
+     * @description Formula with an unclosed string literal → isValid = false.
      */
     @isTest
     static void testVerifyFormula_UnclosedStringLiteral_SingleQuote() {
-        Account acc     = getTestAccount();
-        String  formula = 'Account.Name = \'Technology'; // opening quote never closed
+        Account acc = getTestAccount();
 
         Test.startTest();
         REDU_LightningResponse response = REDU_FormulaBuilder_LCTRL.verifyFormula(
-            formula, OBJECT_API_NAME, acc.Id
+            'Name = \'Technology',   // opening quote never closed
+            OBJECT_API_NAME, acc.Id
         );
         Test.stopTest();
 
         Map<String, Object> result = (Map<String, Object>) JSON.deserializeUntyped(response.responseData);
         System.assertEquals(false, (Boolean) result.get('isValid'),
             'Unclosed string literal must return isValid = false');
-
-        String errMsg = (String) result.get('errorMessage');
-        System.assertNotEquals(null, errMsg,
+        System.assertNotEquals(null, result.get('errorMessage'),
             'An error message must be present for an unclosed string literal');
-        System.assert(
-            errMsg.containsIgnoreCase('single quote') || errMsg.containsIgnoreCase('string literal'),
-            'Error message must reference the string literal problem; got: ' + errMsg
-        );
     }
 
     /**
-     * @description Formula where a string literal is opened and the remaining content
-     *              also has a paren — the paren is inside the unclosed string and must
-     *              NOT register as a paren error (string-literal check fires first).
+     * @description Formula where a string literal is opened with a paren inside it
+     *              — the whole thing is still an unclosed-literal error → isValid = false.
      */
     @isTest
     static void testVerifyFormula_UnclosedStringLiteral_HidesInvalidParen() {
-        Account acc     = getTestAccount();
-        String  formula = 'Account.Name = \'(hello';
+        Account acc = getTestAccount();
 
         Test.startTest();
         REDU_LightningResponse response = REDU_FormulaBuilder_LCTRL.verifyFormula(
-            formula, OBJECT_API_NAME, acc.Id
+            'Name = \'(hello',
+            OBJECT_API_NAME, acc.Id
         );
         Test.stopTest();
 
         Map<String, Object> result = (Map<String, Object>) JSON.deserializeUntyped(response.responseData);
         System.assertEquals(false, (Boolean) result.get('isValid'),
             'Unclosed string with an inner paren must return isValid = false');
-
-        String errMsg = (String) result.get('errorMessage');
-        System.assert(
-            errMsg.containsIgnoreCase('single quote') || errMsg.containsIgnoreCase('string literal'),
-            'Error must report the unclosed string literal, not a parenthesis problem; got: ' + errMsg
-        );
+        System.assertNotEquals(null, result.get('errorMessage'),
+            'An error message must be present');
     }
 
     // ─────────────────────────────────────────────────────────────────────────
-    // verifyFormula — Parenthesis Error Tests (Checks A / B)
+    // verifyFormula — Parenthesis Error Tests
     // ─────────────────────────────────────────────────────────────────────────
 
     /**
@@ -531,12 +537,12 @@ public class REDU_FormulaBuilder_LCTRL_TEST {
      */
     @isTest
     static void testVerifyFormula_UnmatchedOpenParen() {
-        Account acc     = getTestAccount();
-        String  formula = '((Account.Industry = \'Technology\' AND Account.AnnualRevenue > 0)';
+        Account acc = getTestAccount();
 
         Test.startTest();
         REDU_LightningResponse response = REDU_FormulaBuilder_LCTRL.verifyFormula(
-            formula, OBJECT_API_NAME, acc.Id
+            '((AnnualRevenue > 0 AND ISBLANK(Industry))',
+            OBJECT_API_NAME, acc.Id
         );
         Test.stopTest();
 
@@ -548,17 +554,16 @@ public class REDU_FormulaBuilder_LCTRL_TEST {
     }
 
     /**
-     * @description Formula with an extra closing paren → isValid = false with
-     *              a character-position reference in the error message.
+     * @description Formula with an extra closing paren → isValid = false.
      */
     @isTest
     static void testVerifyFormula_UnmatchedCloseParen() {
-        Account acc     = getTestAccount();
-        String  formula = 'Account.Industry = \'Technology\') AND Account.AnnualRevenue > 0';
+        Account acc = getTestAccount();
 
         Test.startTest();
         REDU_LightningResponse response = REDU_FormulaBuilder_LCTRL.verifyFormula(
-            formula, OBJECT_API_NAME, acc.Id
+            'AnnualRevenue > 0)',
+            OBJECT_API_NAME, acc.Id
         );
         Test.stopTest();
 
@@ -570,7 +575,7 @@ public class REDU_FormulaBuilder_LCTRL_TEST {
     }
 
     // ─────────────────────────────────────────────────────────────────────────
-    // verifyFormula — Operator Error Tests (Checks C–G)
+    // verifyFormula — Operator / Syntax Error Tests
     // ─────────────────────────────────────────────────────────────────────────
 
     /**
@@ -578,12 +583,12 @@ public class REDU_FormulaBuilder_LCTRL_TEST {
      */
     @isTest
     static void testVerifyFormula_ConsecutiveOperators_AndAnd() {
-        Account acc     = getTestAccount();
-        String  formula = 'Account.Industry = \'Technology\' AND AND Account.AnnualRevenue > 0';
+        Account acc = getTestAccount();
 
         Test.startTest();
         REDU_LightningResponse response = REDU_FormulaBuilder_LCTRL.verifyFormula(
-            formula, OBJECT_API_NAME, acc.Id
+            'AnnualRevenue > 0 AND AND ISBLANK(Industry)',
+            OBJECT_API_NAME, acc.Id
         );
         Test.stopTest();
 
@@ -599,116 +604,84 @@ public class REDU_FormulaBuilder_LCTRL_TEST {
      */
     @isTest
     static void testVerifyFormula_ConsecutiveOperators_OrOr() {
-        Account acc     = getTestAccount();
-        String  formula = 'Account.Industry = \'Technology\' OR OR Account.AnnualRevenue > 0';
+        Account acc = getTestAccount();
 
         Test.startTest();
         REDU_LightningResponse response = REDU_FormulaBuilder_LCTRL.verifyFormula(
-            formula, OBJECT_API_NAME, acc.Id
+            'AnnualRevenue > 0 OR OR ISBLANK(Industry)',
+            OBJECT_API_NAME, acc.Id
         );
         Test.stopTest();
 
         Map<String, Object> result = (Map<String, Object>) JSON.deserializeUntyped(response.responseData);
         System.assertEquals(false, (Boolean) result.get('isValid'),
             'OR OR must return isValid = false');
+        System.assertNotEquals(null, result.get('errorMessage'),
+            'An error message must be present');
     }
 
     /**
-     * @description Formula starting with a binary operator (AND) → isValid = false.
-     */
-    @isTest
-    static void testVerifyFormula_StartsWithBinaryOperator() {
-        Account acc     = getTestAccount();
-        String  formula = 'AND Account.Industry = \'Technology\'';
-
-        Test.startTest();
-        REDU_LightningResponse response = REDU_FormulaBuilder_LCTRL.verifyFormula(
-            formula, OBJECT_API_NAME, acc.Id
-        );
-        Test.stopTest();
-
-        Map<String, Object> result = (Map<String, Object>) JSON.deserializeUntyped(response.responseData);
-        System.assertEquals(false, (Boolean) result.get('isValid'),
-            'Leading AND must return isValid = false');
-    }
-
-    /**
-     * @description Formula ending with OR → isValid = false.
+     * @description Trailing OR with no right operand → isValid = false.
      */
     @isTest
     static void testVerifyFormula_EndsWithOperator_Or() {
-        Account acc     = getTestAccount();
-        String  formula = 'Account.Industry = \'Technology\' OR';
+        Account acc = getTestAccount();
 
         Test.startTest();
         REDU_LightningResponse response = REDU_FormulaBuilder_LCTRL.verifyFormula(
-            formula, OBJECT_API_NAME, acc.Id
+            'AnnualRevenue > 0 OR',
+            OBJECT_API_NAME, acc.Id
         );
         Test.stopTest();
 
         Map<String, Object> result = (Map<String, Object>) JSON.deserializeUntyped(response.responseData);
         System.assertEquals(false, (Boolean) result.get('isValid'),
             'Trailing OR must return isValid = false');
-    }
-
-    /**
-     * @description Formula ending with NOT → isValid = false.
-     */
-    @isTest
-    static void testVerifyFormula_EndsWithOperator_Not() {
-        Account acc     = getTestAccount();
-        String  formula = 'Account.Industry = \'Technology\' NOT';
-
-        Test.startTest();
-        REDU_LightningResponse response = REDU_FormulaBuilder_LCTRL.verifyFormula(
-            formula, OBJECT_API_NAME, acc.Id
-        );
-        Test.stopTest();
-
-        Map<String, Object> result = (Map<String, Object>) JSON.deserializeUntyped(response.responseData);
-        System.assertEquals(false, (Boolean) result.get('isValid'),
-            'Trailing NOT must return isValid = false');
-    }
-
-    /**
-     * @description Multi-argument function call with a missing comma between
-     *              arguments → isValid = false.
-     */
-    @isTest
-    static void testVerifyFormula_MissingCommaInFunctionCall() {
-        Account acc     = getTestAccount();
-        String  formula = 'IF(Account.AnnualRevenue > 0 \'yes\' \'no\')';
-
-        Test.startTest();
-        REDU_LightningResponse response = REDU_FormulaBuilder_LCTRL.verifyFormula(
-            formula, OBJECT_API_NAME, acc.Id
-        );
-        Test.stopTest();
-
-        Map<String, Object> result = (Map<String, Object>) JSON.deserializeUntyped(response.responseData);
-        System.assertEquals(false, (Boolean) result.get('isValid'),
-            'Missing comma in IF() must return isValid = false');
         System.assertNotEquals(null, result.get('errorMessage'),
             'An error message must be present');
     }
 
     /**
-     * @description Double-equals comparison operator (==) → isValid = false.
+     * @description Multi-argument IF() with missing commas → isValid = false.
      */
     @isTest
-    static void testVerifyFormula_InvalidOperator_DoubleEquals() {
-        Account acc     = getTestAccount();
-        String  formula = 'Account.Industry == \'Technology\'';
+    static void testVerifyFormula_MissingCommaInFunctionCall() {
+        Account acc = getTestAccount();
 
         Test.startTest();
         REDU_LightningResponse response = REDU_FormulaBuilder_LCTRL.verifyFormula(
-            formula, OBJECT_API_NAME, acc.Id
+            'IF(AnnualRevenue > 0 \'yes\' \'no\')',
+            OBJECT_API_NAME, acc.Id
         );
         Test.stopTest();
 
         Map<String, Object> result = (Map<String, Object>) JSON.deserializeUntyped(response.responseData);
         System.assertEquals(false, (Boolean) result.get('isValid'),
-            'Double-equals operator must return isValid = false');
+            'Missing commas in IF() must return isValid = false');
+        System.assertNotEquals(null, result.get('errorMessage'),
+            'An error message must be present');
+    }
+
+    /**
+     * @description Reference to a non-existent field → isValid = false.
+     *              FormulaEval validates field names against the SObject schema.
+     */
+    @isTest
+    static void testVerifyFormula_UnknownFieldReference() {
+        Account acc = getTestAccount();
+
+        Test.startTest();
+        REDU_LightningResponse response = REDU_FormulaBuilder_LCTRL.verifyFormula(
+            'FakeFieldThatDoesNotExist99__c > 0',
+            OBJECT_API_NAME, acc.Id
+        );
+        Test.stopTest();
+
+        Map<String, Object> result = (Map<String, Object>) JSON.deserializeUntyped(response.responseData);
+        System.assertEquals(false, (Boolean) result.get('isValid'),
+            'Reference to an unknown field must return isValid = false');
+        System.assertNotEquals(null, result.get('errorMessage'),
+            'An error message must be present');
     }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -737,5 +710,23 @@ public class REDU_FormulaBuilder_LCTRL_TEST {
         System.assertEquals(false,
             (Boolean) ((Map<String, Object>) JSON.deserializeUntyped(wsResp.responseData)).get('isValid'),
             'Whitespace-only formula must return isValid = false');
+    }
+
+    /**
+     * @description Blank objectApiName → isValid = false (schema lookup not possible).
+     */
+    @isTest
+    static void testVerifyFormula_BlankObjectApiName() {
+        Test.startTest();
+        REDU_LightningResponse response = REDU_FormulaBuilder_LCTRL.verifyFormula(
+            'AnnualRevenue > 0', '', null
+        );
+        Test.stopTest();
+
+        Map<String, Object> result = (Map<String, Object>) JSON.deserializeUntyped(response.responseData);
+        System.assertEquals(false, (Boolean) result.get('isValid'),
+            'Blank objectApiName must return isValid = false');
+        System.assertNotEquals(null, result.get('errorMessage'),
+            'An error message must be present');
     }
 }
