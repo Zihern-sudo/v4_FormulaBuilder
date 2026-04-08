@@ -579,6 +579,8 @@ export default class FormulaBuilder extends LightningElement {
         this._pendingField           = '';
         this._selectedSystemVariable = '';
         this._selectedField          = '';
+        this._selectedFunction       = '';
+        this._selectedOperator       = '';
         this.consoleLog('handleCancelOnclick — reverted to original, edit mode deactivated');
     }
 

@@ -391,7 +391,7 @@ public class REDU_FormulaBuilder_LCTRL_TEST {
 
         Test.startTest();
         REDU_LightningResponse response = REDU_FormulaBuilder_LCTRL.verifyFormula(
-            'NOT(ISBLANK(Industry))',
+            'NOT(ISBLANK(Name))',
             OBJECT_API_NAME, acc.Id
         );
         Test.stopTest();
