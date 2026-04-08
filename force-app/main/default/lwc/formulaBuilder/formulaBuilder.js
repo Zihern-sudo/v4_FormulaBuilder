@@ -101,6 +101,14 @@ export default class FormulaBuilder extends LightningElement {
     @api recordId;
 
     /**
+     * @description API name of the object for the current record page.
+     *              Supplied automatically by the Lightning record page context.
+     *              Used as the storage object when targetObjectApiName is in
+     *              the dynamic '{fieldPath}' format (no explicit object prefix).
+     */
+    @api objectApiName;
+
+    /**
      * @description API name of the Salesforce object that owns the formula field
      *              (e.g. Study_Requirement_Set__c).
      */
@@ -359,35 +367,42 @@ export default class FormulaBuilder extends LightningElement {
     }
 
     /**
-     * @description Parses the targetObjectApiName @api property which supports
-     *              two formats set in the Lightning App Builder:
+     * @description Parses the targetObjectApiName @api property.
+     *              Two formats are supported in the Lightning App Builder:
      *
-     *                1. Plain:   'reduivy__Study_Scoring_Criteria__c'
+     *                1. Hardcoded — plain API name, no curly brace:
+     *                      'reduivy__Study_Scoring_Criteria__c'
      *                   → storageObject = 'reduivy__Study_Scoring_Criteria__c'
      *                   → isDynamic     = false
      *
-     *                2. Dynamic: 'reduivy__Study_Scoring_Criteria__c
-     *                             {reduivy__Study_Scoring_Config__r.reduivy__SObjectType__c}'
-     *                   → storageObject = 'reduivy__Study_Scoring_Criteria__c'
+     *                2. Dynamic — field path wrapped in { }, no object prefix:
+     *                      '{reduivy__Study_Scoring_Config__r.reduivy__SObject_Type__c}'
+     *                   → storageObject = this.objectApiName  (platform-supplied)
      *                   → isDynamic     = true
-     *                   → fieldPath     = 'reduivy__Study_Scoring_Config__r.reduivy__SObjectType__c'
+     *                   → fieldPath     = 'reduivy__Study_Scoring_Config__r.reduivy__SObject_Type__c'
      *
-     *              The storage object is always the object that owns the formula field
-     *              (used for getFieldValue / updateFieldValue).
-     *              The fieldPath, when present, is resolved via Apex to obtain the
-     *              actual SObject whose fields appear in the Fields combobox.
+     *              Detection rule: if the value starts with '{' it is dynamic;
+     *              otherwise it is treated as a plain hardcoded API name.
+     *
+     *              For the dynamic format the storage object is the page's own
+     *              objectApiName (automatically bound by the platform on record
+     *              pages — no extra App Builder config required).
      *
      * @return {{ storageObject: string, isDynamic: boolean, fieldPath: string|null }}
      */
     _parseTargetConfig() {
-        const raw = (this.targetObjectApiName || '').trim();
-        // Remove any whitespace between the object name and the '{' before matching
+        const raw        = (this.targetObjectApiName || '').trim();
         const normalised = raw.replace(/\s+/g, '');
-        const match      = normalised.match(/^([^{]+)\{([^}]+)\}$/);
-        if (match) {
-            return { storageObject: match[1], isDynamic: true,  fieldPath: match[2] };
+
+        // Dynamic format: value is entirely wrapped in { }
+        if (normalised.startsWith('{') && normalised.endsWith('}')) {
+            const fieldPath     = normalised.slice(1, -1);          // strip { }
+            const storageObject = (this.objectApiName || '').trim(); // from record page
+            return { storageObject, isDynamic: true, fieldPath };
         }
-        return { storageObject: raw,       isDynamic: false, fieldPath: null };
+
+        // Hardcoded format: plain object API name
+        return { storageObject: raw, isDynamic: false, fieldPath: null };
     }
 
     /**
