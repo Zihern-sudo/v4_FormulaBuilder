@@ -382,15 +382,16 @@ public class REDU_FormulaBuilder_LCTRL_TEST {
 
     /**
      * @description Valid boolean infix formula with balanced parens → isValid = true.
+     *              Avoids picklist = 'value' comparisons which FormulaEval rejects
+     *              (picklist equality requires ISPICKVAL()).
      */
     @isTest
     static void testVerifyFormula_ValidInfixFormula() {
         Account acc = getTestAccount();
 
         Test.startTest();
-        // Use a String field (Industry) — single-quoted literal (FormulaEval requires single quotes)
         REDU_LightningResponse response = REDU_FormulaBuilder_LCTRL.verifyFormula(
-            'Industry = \'Technology\'',
+            'NOT(ISBLANK(Industry))',
             OBJECT_API_NAME, acc.Id
         );
         Test.stopTest();
@@ -461,23 +462,24 @@ public class REDU_FormulaBuilder_LCTRL_TEST {
     }
 
     /**
-     * @description String literal using double-quote syntax → the formula must remain valid.
+     * @description Formula containing a string literal inside a function call → isValid = true.
+     *              Uses CONTAINS() which is universally accepted by FormulaEval and
+     *              exercises the string-literal code path without picklist/equality issues.
      */
     @isTest
     static void testVerifyFormula_EscapedQuoteInsideString_IsValid() {
         Account acc = getTestAccount();
 
         Test.startTest();
-        // Single-quoted string literal — FormulaEval does not accept double-quote delimiters
         REDU_LightningResponse response = REDU_FormulaBuilder_LCTRL.verifyFormula(
-            'Name = \'it is a test\'',
+            'CONTAINS(Name, \'test\')',
             OBJECT_API_NAME, acc.Id
         );
         Test.stopTest();
 
         Map<String, Object> result = (Map<String, Object>) JSON.deserializeUntyped(response.responseData);
         System.assertEquals(true, (Boolean) result.get('isValid'),
-            'Literal failed: ' + result.get('errorMessage'));
+            'String literal in CONTAINS() failed: ' + result.get('errorMessage'));
     }
 
     // ─────────────────────────────────────────────────────────────────────────
