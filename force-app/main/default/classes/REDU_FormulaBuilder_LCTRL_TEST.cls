@@ -388,9 +388,9 @@ public class REDU_FormulaBuilder_LCTRL_TEST {
         Account acc = getTestAccount();
 
         Test.startTest();
-        // Use a String field (Industry) for maximum stability in native tests
+        // Use a String field (Industry) — single-quoted literal (FormulaEval requires single quotes)
         REDU_LightningResponse response = REDU_FormulaBuilder_LCTRL.verifyFormula(
-            'Industry = "Technology"',
+            'Industry = \'Technology\'',
             OBJECT_API_NAME, acc.Id
         );
         Test.stopTest();
@@ -468,9 +468,9 @@ public class REDU_FormulaBuilder_LCTRL_TEST {
         Account acc = getTestAccount();
 
         Test.startTest();
-        // Use double quotes for the string literal inside the formula
+        // Single-quoted string literal — FormulaEval does not accept double-quote delimiters
         REDU_LightningResponse response = REDU_FormulaBuilder_LCTRL.verifyFormula(
-            'Name = "it is a test"',
+            'Name = \'it is a test\'',
             OBJECT_API_NAME, acc.Id
         );
         Test.stopTest();

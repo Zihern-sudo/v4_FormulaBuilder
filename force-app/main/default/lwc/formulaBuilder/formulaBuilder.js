@@ -1002,10 +1002,15 @@ export default class FormulaBuilder extends LightningElement {
      */
     get pendingToken() {
         if (!this._pendingSystemVariable || !this._pendingField) { return ''; }
-        // Both global seeds ($Organization.Address) and target SObject fields
-        // ($reduivy__Individual_Program_Application__c.CreatedDate) use the
-        // $ObjectApiName.FieldApiName format so formulas can reference them correctly.
-        return `$${this._pendingSystemVariable}.${this._pendingField}`;
+
+        const isSystemVariable = SYSTEM_VARIABLE_SEEDS.includes(this._pendingSystemVariable);
+
+        // Standard global seeds get '$' prefix and dot notation: $Organization.Address
+        // Target SObject fields use bare field names only: CreatedDate
+        // (formulas are evaluated in the context of the object, no prefix needed)
+        return isSystemVariable
+            ? `$${this._pendingSystemVariable}.${this._pendingField}`
+            : this._pendingField;
     }
 
     /**
@@ -1144,7 +1149,11 @@ export default class FormulaBuilder extends LightningElement {
      */
     consoleLog(message, data) {
         if (this.enableDebugMode) {
-            logInfo(COMPONENT, message, data);
+            // Intercept circular refs/Proxies before they hit the utility's stringify
+            const safeData = data && typeof data === 'object'
+                ? data.message || '[Object payload]'
+                : data;
+            logInfo(COMPONENT, message, safeData);
         }
     }
 }
