@@ -36,6 +36,12 @@ public with sharing class REDU_FormulaBuilder_LCTRL {
                 throw new AuraHandledException('recordId is required.');
             }
 
+            // Guard: if objectApiName still contains the '{...}' dynamic syntax it has
+            // not been resolved yet — return empty rather than crashing SOQL.
+            if (objectApiName.trim().startsWith('{')) {
+                return new REDU_LightningResponse(true, 'Pending Resolution', '');
+            }
+
             String safeObject = String.escapeSingleQuotes(objectApiName);
             String safeField  = String.escapeSingleQuotes(fieldApiName);
 
