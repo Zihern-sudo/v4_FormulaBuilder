@@ -27,6 +27,7 @@
  * ISS-002768 2026-04-03 - Initial development of Formula Builder LWC template
  * ISS-002768 2026-04-06 - Verify Formula modal; verification opt-in; explicit Verify button
  * ISS-002768 2026-04-08 - Unified two-step indicator; Formula Context combobox label
+ * ISS-002768 2026-04-09 - Verify modal: lightning-record-picker replaces text input; dynamic success message
  */
 -->
 <template>
@@ -409,21 +410,20 @@
             <p
               class="formula-builder-modal__hint slds-text-body_small slds-text-color_weak slds-m-bottom_small"
             >
-              Optionally enter a sample record Id, then click
-              <strong>Verify</strong>. Only formula syntax is checked; the
-              record Id is not required.
+              Optionally select a sample record, then click <strong>Verify</strong>. Syntax and data evaluation will be
+              performed against the selection.
             </p>
 
-            <lightning-input
-              type="text"
-              label="Sample Record ID (optional)"
-              placeholder="e.g. a0B000000000001EAA"
+            <lightning-record-picker
+              label="Sample Record (optional)"
+              placeholder="Search for a record..."
+              object-api-name={_targetSObjectApiName}
               value={_verifyRecordId}
               onchange={handleVerifyRecordInput}
               disabled={isLoading}
               class="formula-builder-modal__record-input"
             >
-            </lightning-input>
+            </lightning-record-picker>
 
             <template if:true={hasVerifyModalResult}>
               <div class="formula-builder-modal__result slds-m-top_small">
@@ -441,7 +441,7 @@
                     <span
                       class="formula-builder-result__text slds-text-color_success"
                     >
-                      Formula syntax is valid. You may now close and save.
+                      {verifyModalResultMessage}
                     </span>
                   </div>
                 </template>
