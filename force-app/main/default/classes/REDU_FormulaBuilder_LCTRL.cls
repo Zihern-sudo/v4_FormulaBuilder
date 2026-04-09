@@ -291,92 +291,154 @@ public with sharing class REDU_FormulaBuilder_LCTRL {
     }
 
     /**
-     * @description Validates a formula string using Salesforce's native FormulaEval
-     *              compiler (Formula.builder).  This performs full schema-aware
-     *              validation — syntax, unknown fields, type errors — in a single
-     *              platform call, replacing the manual regex-based approach.
+     * @description Validates a formula string.
+     *              This version includes "Context Auto-Resolution" to dynamically
+     *              swap the compiler's SObject dictionary if it detects it is running
+     *              on a configuration record (e.g. a Scoring Config that stores its
+     *              target SObject type in a field).
      *
-     *              The compiler is invoked with three common return types in order
-     *              (Decimal → Boolean → String) because build() requires a declared
-     *              return type.  A formula is considered valid as soon as any type
-     *              compiles successfully.  If all three fail, the error message from
-     *              the last attempt (most generic type) is returned.
+     *              Round 1: Syntax & return-type detection via FormulaEval compiler.
+     *              Round 2: Smart runtime evaluation against a real record so that
+     *              data-dependent errors (e.g. type mismatches at evaluation time)
+     *              are also surfaced before save.
      *
-     * @param formula       The formula string to verify
+     * @param formulaStr    The formula string to verify (named to avoid shadowing
+     *                      the Formula builder class — Apex is case-insensitive)
      * @param objectApiName API name of the SObject the formula is evaluated against
-     * @param recordId      Unused — retained for API compatibility
+     * @param recordId      Id of the record providing runtime context; may be null
+     *                      (compile-only validation is still performed)
      * @return REDU_LightningResponse containing a Map with keys:
-     *         isValid (Boolean) and errorMessage (String, null when valid)
+     *         isValid (Boolean), errorMessage (String), matchedType (String)
      */
     @AuraEnabled
     public static REDU_LightningResponse verifyFormula(
-        String formulaStr,      // named formulaStr to avoid shadowing the Formula builder class
-        String objectApiName,   // (Apex is case-insensitive: 'formula' would resolve to formulaStr)
+        String formulaStr,
+        String objectApiName,
         Id recordId
     ) {
         try {
             Map<String, Object> result = new Map<String, Object>{
                 'isValid'      => true,
-                'errorMessage' => null
+                'errorMessage' => null,
+                'matchedType'  => null
             };
 
-            // ── Guard: empty formula ─────────────────────────────────────────
-            if (String.isBlank(formulaStr)) {
-                result.put('isValid',      false);
-                result.put('errorMessage', 'Formula cannot be empty.');
+            if (String.isBlank(formulaStr) || String.isBlank(objectApiName)) {
+                result.put('isValid', false);
+                result.put('errorMessage', 'Formula and Object API Name are required.');
                 return new REDU_LightningResponse(true, 'Verification Result', JSON.serialize(result));
             }
 
-            // ── Guard: object API name required for schema-aware validation ──
-            if (String.isBlank(objectApiName)) {
-                result.put('isValid',      false);
-                result.put('errorMessage', 'Object API Name is required to validate formula field references.');
-                return new REDU_LightningResponse(true, 'Verification Result', JSON.serialize(result));
+            // ── Step 0: Context Auto-Resolution ──────────────────────────────
+            // Determine the effective SObject for compilation.  If the record on
+            // screen is a config record (not the formula's target object), try to
+            // read the target SObject type from a dedicated field so that field
+            // references in the formula are validated against the correct schema.
+            String effectiveObjectApiName = objectApiName.trim();
+
+            if (recordId != null) {
+                String currentRecordType = recordId.getSObjectType().getDescribe().getName();
+
+                if (currentRecordType != effectiveObjectApiName) {
+                    try {
+                        // Best-effort: query the config record for a field that
+                        // stores the target SObject type.  Silently ignored if the
+                        // field does not exist on this object.
+                        String configQuery =
+                            'SELECT reduivy__SObject_Type__c' +
+                            ' FROM ' + currentRecordType +
+                            ' WHERE Id = :recordId LIMIT 1';
+                        SObject configRec     = Database.query(configQuery);
+                        String  resolvedTarget = (String) configRec.get('reduivy__SObject_Type__c');
+
+                        if (String.isNotBlank(resolvedTarget)) {
+                            effectiveObjectApiName = resolvedTarget;
+                        }
+                    } catch (Exception ignoreEx) {
+                        // Field not present on this object — keep original objectApiName.
+                    }
+                }
             }
 
             // ── Resolve SObject type ─────────────────────────────────────────
-            Schema.SObjectType sobjType = Schema.getGlobalDescribe().get(objectApiName.trim());
+            Schema.SObjectType sobjType = Schema.getGlobalDescribe().get(effectiveObjectApiName);
             if (sobjType == null) {
-                result.put('isValid',      false);
-                result.put('errorMessage', 'Unknown object: ' + objectApiName + '. Cannot validate formula.');
+                result.put('isValid', false);
+                result.put('errorMessage', 'SObject not found: ' + effectiveObjectApiName);
                 return new REDU_LightningResponse(true, 'Verification Result', JSON.serialize(result));
             }
 
-            // ── Native FormulaEval compilation ───────────────────────────────
+            // ── Round 1: Syntax & Return Type Detection ───────────────────────
             // Formula.builder().build() performs full syntax + schema validation.
-            // build() throws FormulaEval.FormulaException on any error.
-            // We try Decimal first (score formulas are typically numeric), then
-            // Boolean (criteria formulas), then String as a final fallback so the
-            // validator accepts formulas of any return type.
-            List<FormulaEval.FormulaReturnType> returnTypes = new List<FormulaEval.FormulaReturnType>{
-                FormulaEval.FormulaReturnType.Decimal,
-                FormulaEval.FormulaReturnType.Boolean,
-                FormulaEval.FormulaReturnType.String
-            };
+            // We try every available return type; a formula is valid as soon as
+            // any type compiles successfully.
+            FormulaEval.FormulaInstance builtFormula = null;
+            String lastError = null;
 
-            String  lastError = null;
-            Boolean builtOk   = false;
-
-            for (FormulaEval.FormulaReturnType rt : returnTypes) {
+            for (FormulaEval.FormulaReturnType rt : FormulaEval.FormulaReturnType.values()) {
                 try {
-                    Formula.builder()
+                    builtFormula = Formula.builder()
                         .withReturnType(rt)
                         .withType(sobjType)
                         .withFormula(formulaStr.trim())
                         .build();
-                    builtOk = true;
+                    result.put('matchedType', rt.name());
                     break;
                 } catch (Exception e) {
                     lastError = e.getMessage();
                 }
             }
 
-            if (!builtOk) {
-                result.put('isValid',      false);
-                result.put('errorMessage', lastError);
+            if (builtFormula == null) {
+                result.put('isValid', false);
+                result.put('errorMessage', 'Compilation Error: ' + lastError);
+                return new REDU_LightningResponse(true, 'Verification Result', JSON.serialize(result));
             }
 
-            return new REDU_LightningResponse(true, 'Verification Result', JSON.serialize(result));
+            // ── Round 2: Smart Runtime Evaluation ────────────────────────────
+            // Evaluate the compiled formula against a real record so that
+            // data-dependent errors are also caught before the formula is saved.
+            if (recordId != null) {
+                try {
+                    Id     actualEvalId      = recordId;
+                    String providedRecordType = recordId.getSObjectType().getDescribe().getName();
+
+                    // If the provided record is a config record (not the target
+                    // object), fetch a sample record of the target object instead.
+                    if (providedRecordType != effectiveObjectApiName) {
+                        List<SObject> samples = Database.query(
+                            'SELECT Id FROM ' + effectiveObjectApiName + ' LIMIT 1'
+                        );
+                        if (samples.isEmpty()) {
+                            throw new IllegalArgumentException(
+                                'No sample ' + effectiveObjectApiName +
+                                ' records found for runtime evaluation.'
+                            );
+                        }
+                        actualEvalId = samples[0].Id;
+                    }
+
+                    Set<String>  fields      = builtFormula.getReferencedFields();
+                    fields.add('Id');
+
+                    String evalQuery =
+                        'SELECT ' + String.join(new List<String>(fields), ', ') +
+                        ' FROM '  + effectiveObjectApiName +
+                        ' WHERE Id = :actualEvalId LIMIT 1';
+
+                    SObject targetRecord = Database.query(evalQuery);
+                    if (targetRecord != null) {
+                        builtFormula.evaluate(targetRecord);
+                    }
+                } catch (Exception e) {
+                    result.put('isValid', false);
+                    result.put('errorMessage', 'Runtime Error: ' + e.getMessage());
+                    return new REDU_LightningResponse(true, 'Verification Result', JSON.serialize(result));
+                }
+            }
+
+            String successMsg = 'Formula is valid. Detected Return Type: ' + result.get('matchedType');
+            return new REDU_LightningResponse(true, successMsg, JSON.serialize(result));
 
         } catch (Exception exp) {
             throw REDU_Exception_UTIL.auraException(exp.getMessage(), exp.getLineNumber(), null);
