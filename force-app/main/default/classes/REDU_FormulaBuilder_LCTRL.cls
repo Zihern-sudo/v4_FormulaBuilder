@@ -150,7 +150,7 @@ public with sharing class REDU_FormulaBuilder_LCTRL {
                 return new REDU_LightningResponse(false, 'recordId is required.', null);
             }
 
-            Id    safeId     = (Id) recordId;
+            Id     safeId    = (Id) recordId;
             String safeObj   = String.escapeSingleQuotes(objectApiName.trim());
             String safeField = String.escapeSingleQuotes(fieldPath.trim());
 
@@ -223,11 +223,13 @@ public with sharing class REDU_FormulaBuilder_LCTRL {
     }
 
     /**
-     * @description Returns all accessible fields for the given SObject using
-     *              Schema.describeSObjects.  The JS layer decides how to render
-     *              each field (label + apiName for the target SObject; apiName only
-     *              for standard global variables such as Organization, User, etc.).
-     * @param objectApiName API name of the SObject to describe (e.g. Account, Organization)
+     * @description Returns all accessible fields for the given SObject.
+     *              For recognised global system variable seeds (User, Organization, etc.)
+     *              a curated hardcoded list is returned instead of a live Schema describe,
+     *              because these are virtual objects that do not have a queryable schema
+     *              in all contexts.  For all other SObjects the live describe is used.
+     * @param objectApiName API name of the SObject or system-variable seed
+     *                      (e.g. 'Account', 'User', '$User', 'Organization')
      * @return REDU_LightningResponse containing a JSON array of {apiName, label} objects
      */
     @AuraEnabled(cacheable=true)
@@ -237,18 +239,36 @@ public with sharing class REDU_FormulaBuilder_LCTRL {
                 throw new AuraHandledException('objectApiName is required.');
             }
 
-            Schema.DescribeSObjectResult[] descResults =
-                Schema.describeSObjects(new List<String>{ objectApiName });
-
-            Map<String, Schema.SObjectField> fieldsMap = descResults[0].fields.getMap();
             List<Map<String, String>> fields = new List<Map<String, String>>();
 
-            for (String fieldKey : fieldsMap.keySet()) {
-                Schema.DescribeFieldResult dfr = fieldsMap.get(fieldKey).getDescribe();
-                fields.add(new Map<String, String>{
-                    'apiName' => dfr.getName(),
-                    'label'   => dfr.getLabel()
-                });
+            // Strip optional '$' prefix (e.g. '$User' → 'User') so callers can pass
+            // either form and the lookup works consistently.
+            String cleanKey = objectApiName.replace('$', '');
+
+            Map<String, List<String>> systemVariableMap = getSystemVariableFieldsMap();
+
+            if (systemVariableMap.containsKey(cleanKey)) {
+                // System variable seed — return curated list; label matches API name
+                // because these fields are referenced by API name in formula expressions.
+                for (String fieldName : systemVariableMap.get(cleanKey)) {
+                    fields.add(new Map<String, String>{
+                        'apiName' => fieldName,
+                        'label'   => fieldName
+                    });
+                }
+            } else {
+                // Standard SObject — perform a live Schema describe.
+                Schema.DescribeSObjectResult[] descResults =
+                    Schema.describeSObjects(new List<String>{ objectApiName });
+                Map<String, Schema.SObjectField> fieldsMap = descResults[0].fields.getMap();
+
+                for (String fieldKey : fieldsMap.keySet()) {
+                    Schema.DescribeFieldResult dfr = fieldsMap.get(fieldKey).getDescribe();
+                    fields.add(new Map<String, String>{
+                        'apiName' => dfr.getName(),
+                        'label'   => dfr.getLabel()
+                    });
+                }
             }
 
             return new REDU_LightningResponse(true, 'Success', JSON.serialize(fields));
@@ -291,22 +311,23 @@ public with sharing class REDU_FormulaBuilder_LCTRL {
     }
 
     /**
-     * @description Validates a formula string.
-     *              This version includes "Context Auto-Resolution" to dynamically
-     *              swap the compiler's SObject dictionary if it detects it is running
-     *              on a configuration record (e.g. a Scoring Config that stores its
-     *              target SObject type in a field).
+     * @description Validates a formula string against a specific return type or auto-detects it.
+     *              Supports all FormulaEval.FormulaReturnType values by mapping UI-friendly
+     *              labels (Checkbox, Text, Number, Currency, Percent) to the corresponding
+     *              internal enum names and back again for consistent messaging.
      *
-     *              Round 1: Syntax & return-type detection via FormulaEval compiler.
-     *              Round 2: Smart runtime evaluation against a real record so that
-     *              data-dependent errors (e.g. type mismatches at evaluation time)
-     *              are also surfaced before save.
+     *              Round 1 — Syntax & return-type detection via FormulaEval compiler.
+     *              Round 2 — Smart runtime evaluation against a real record so that
+     *              data-dependent errors are also surfaced before save.
      *
-     * @param formulaStr    The formula string to verify (named to avoid shadowing
-     *                      the Formula builder class — Apex is case-insensitive)
-     * @param objectApiName API name of the SObject the formula is evaluated against
-     * @param recordId      Id of the record providing runtime context; may be null
-     *                      (compile-only validation is still performed)
+     * @param formulaStr         The formula string to verify (named to avoid shadowing
+     *                           the Formula builder class — Apex is case-insensitive)
+     * @param objectApiName      API name of the SObject the formula is evaluated against
+     * @param recordId           Id of the record providing runtime context; may be null
+     *                           (compile-only validation is still performed)
+     * @param expectedReturnType Optional UI-friendly return type label (e.g. 'Checkbox',
+     *                           'Text', 'Number', 'Currency', 'Percent', or a raw enum
+     *                           name such as 'Date').  Pass null to auto-detect.
      * @return REDU_LightningResponse containing a Map with keys:
      *         isValid (Boolean), errorMessage (String), matchedType (String)
      */
@@ -314,7 +335,8 @@ public with sharing class REDU_FormulaBuilder_LCTRL {
     public static REDU_LightningResponse verifyFormula(
         String formulaStr,
         String objectApiName,
-        Id recordId
+        Id recordId,
+        String expectedReturnType
     ) {
         try {
             Map<String, Object> result = new Map<String, Object>{
@@ -348,7 +370,7 @@ public with sharing class REDU_FormulaBuilder_LCTRL {
                             'SELECT reduivy__SObject_Type__c' +
                             ' FROM ' + currentRecordType +
                             ' WHERE Id = :recordId LIMIT 1';
-                        SObject configRec     = Database.query(configQuery);
+                        SObject configRec      = Database.query(configQuery);
                         String  resolvedTarget = (String) configRec.get('reduivy__SObject_Type__c');
 
                         if (String.isNotBlank(resolvedTarget)) {
@@ -370,19 +392,58 @@ public with sharing class REDU_FormulaBuilder_LCTRL {
 
             // ── Round 1: Syntax & Return Type Detection ───────────────────────
             // Formula.builder().build() performs full syntax + schema validation.
-            // We try every available return type; a formula is valid as soon as
-            // any type compiles successfully.
+            // We either try only the requested return type (strict check) or iterate
+            // all available types to auto-detect (permissive check).
+            Boolean isStrictTypeCheck = String.isNotBlank(expectedReturnType);
+            List<FormulaEval.FormulaReturnType> typesToCheck = new List<FormulaEval.FormulaReturnType>();
+
+            if (isStrictTypeCheck) {
+                // Map friendly UI label → internal enum name.
+                // 'Number', 'Currency', 'Percent' all map to the Decimal enum constant.
+                String internalName = expectedReturnType;
+                if      (expectedReturnType.equalsIgnoreCase('Checkbox'))  { internalName = 'Boolean'; }
+                else if (expectedReturnType.equalsIgnoreCase('Text'))      { internalName = 'String';  }
+                else if (expectedReturnType.equalsIgnoreCase('Number')
+                      || expectedReturnType.equalsIgnoreCase('Currency')
+                      || expectedReturnType.equalsIgnoreCase('Percent'))   { internalName = 'Decimal'; }
+
+                for (FormulaEval.FormulaReturnType rt : FormulaEval.FormulaReturnType.values()) {
+                    if (rt.name().equalsIgnoreCase(internalName)) {
+                        typesToCheck.add(rt);
+                    }
+                }
+            } else {
+                typesToCheck = FormulaEval.FormulaReturnType.values();
+            }
+
             FormulaEval.FormulaInstance builtFormula = null;
             String lastError = null;
 
-            for (FormulaEval.FormulaReturnType rt : FormulaEval.FormulaReturnType.values()) {
+            for (FormulaEval.FormulaReturnType rt : typesToCheck) {
                 try {
                     builtFormula = Formula.builder()
                         .withReturnType(rt)
                         .withType(sobjType)
                         .withFormula(formulaStr.trim())
                         .build();
-                    result.put('matchedType', rt.name());
+
+                    // Reverse-map enum name → friendly UI label for consistent messaging.
+                    String prettyName;
+                    if (rt.name().equalsIgnoreCase('Boolean')) {
+                        prettyName = 'Checkbox';
+                    } else if (rt.name().equalsIgnoreCase('String')) {
+                        prettyName = 'Text';
+                    } else if (rt.name().equalsIgnoreCase('Decimal') || rt.name().equalsIgnoreCase('Double')) {
+                        // Preserve the admin's specific choice (Currency/Percent) if provided;
+                        // otherwise default to the generic 'Number' label.
+                        prettyName = isStrictTypeCheck ? expectedReturnType : 'Number';
+                    } else {
+                        // Date, DateTime, Id, Time — capitalise properly.
+                        prettyName = rt.name().toLowerCase().capitalize();
+                        if (prettyName.equalsIgnoreCase('Datetime')) { prettyName = 'DateTime'; }
+                    }
+
+                    result.put('matchedType', prettyName);
                     break;
                 } catch (Exception e) {
                     lastError = e.getMessage();
@@ -391,7 +452,10 @@ public with sharing class REDU_FormulaBuilder_LCTRL {
 
             if (builtFormula == null) {
                 result.put('isValid', false);
-                result.put('errorMessage', 'Compilation Error: ' + lastError);
+                String errorPrefix = isStrictTypeCheck
+                    ? 'Formula does not return ' + expectedReturnType + ': '
+                    : 'Compilation Error: ';
+                result.put('errorMessage', errorPrefix + lastError);
                 return new REDU_LightningResponse(true, 'Verification Result', JSON.serialize(result));
             }
 
@@ -409,16 +473,10 @@ public with sharing class REDU_FormulaBuilder_LCTRL {
                         List<SObject> samples = Database.query(
                             'SELECT Id FROM ' + effectiveObjectApiName + ' LIMIT 1'
                         );
-                        if (samples.isEmpty()) {
-                            throw new IllegalArgumentException(
-                                'No sample ' + effectiveObjectApiName +
-                                ' records found for runtime evaluation.'
-                            );
-                        }
-                        actualEvalId = samples[0].Id;
+                        if (!samples.isEmpty()) { actualEvalId = samples[0].Id; }
                     }
 
-                    Set<String>  fields      = builtFormula.getReferencedFields();
+                    Set<String> fields = builtFormula.getReferencedFields();
                     fields.add('Id');
 
                     String evalQuery =
@@ -437,7 +495,7 @@ public with sharing class REDU_FormulaBuilder_LCTRL {
                 }
             }
 
-            String successMsg = 'Formula is valid. Detected Return Type: ' + result.get('matchedType');
+            String successMsg = 'Formula syntax is valid. (Return Type: ' + result.get('matchedType') + ')';
             return new REDU_LightningResponse(true, successMsg, JSON.serialize(result));
 
         } catch (Exception exp) {
@@ -448,6 +506,54 @@ public with sharing class REDU_FormulaBuilder_LCTRL {
     // ─────────────────────────────────────────────────────────────────────────
     // Private Helpers
     // ─────────────────────────────────────────────────────────────────────────
+
+    /**
+     * @description Curated mapping of global system-variable seeds to the fields
+     *              that are valid in Salesforce formula expressions.
+     *              These are virtual objects: describeSObjects() does not reliably
+     *              return them in all org contexts, so the list is maintained here.
+     * @return Map of seed name (without '$') → List of supported field API names
+     */
+    private static Map<String, List<String>> getSystemVariableFieldsMap() {
+        return new Map<String, List<String>>{
+            'Organization' => new List<String>{
+                'Address', 'City', 'Country', 'Division', 'Fax', 'GeocodeAccuracy',
+                'GoogleAppsDomain', 'Latitude', 'Longitude', 'Name', 'OrganizationId',
+                'Phone', 'PostalCode', 'State', 'Street', 'UiSkin'
+            },
+            'Profile' => new List<String>{
+                'CreatedById', 'CreatedDate', 'Description', 'Id', 'LastModifiedById',
+                'LastModifiedDate', 'ManageUsers', 'Name', 'UsageType', 'UserType'
+            },
+            'Setup.reduivy__RIO_Education_Ivy_Settings__c' => new List<String>{
+                'reduivy__Academic_Profile_Generation_Type__c',
+                'reduivy__Academic_Profile_Identifier_Mapping__c',
+                'reduivy__Academic_Profile_Name_Format__c',
+                'reduivy__Academic_Term_Apply_FA_Batch_Size__c',
+                'reduivy__Academic_Term_Generate_Orders_Batch_Size__c',
+                'reduivy__Administrative_Account_Name_Format__c',
+                'reduivy__Debug_Mode__c',
+                'reduivy__Default_Owner_Id__c'
+            },
+            'System' => new List<String>{ 'OriginDateTime' },
+            'User' => new List<String>{
+                'Alias', 'City', 'CompanyName', 'ContactId', 'Country', 'Department',
+                'Division', 'Email', 'EmailSignature', 'EmployeeNumber', 'EndOfDay',
+                'Extension', 'Fax', 'FederationIdentifier', 'FirstName', 'GeocodeAccuracy',
+                'Id', 'IsActive', 'LanguageLocaleKey', 'LastName', 'Latitude',
+                'LocaleSidKey', 'Longitude', 'ManagerId', 'MobilePhone', 'CommunityNickname',
+                'Phone', 'PostalCode', 'ProfileId', 'StartOfDay', 'State', 'Street',
+                'TimeZoneSidKey', 'Title', 'UserPreferencesUiTheme',
+                'UserPreferencesUiThemeDisplayed', 'UserRoleId', 'UserType', 'Username'
+            },
+            'UserRole' => new List<String>{
+                'CaseAccessForAccountOwner', 'ContactAccessForAccountOwner', 'Description',
+                'DeveloperName', 'Id', 'LastModifiedById', 'LastModifiedDate',
+                'MayForecastManagerShare', 'Name', 'OpportunityAccessForAccountOwner',
+                'PortalRole', 'PortalType'
+            }
+        };
+    }
 
     /**
      * @description Validates that a list of String parameters are non-blank,

@@ -3,14 +3,15 @@
  * @Date        April 2026
  * @group       Formula Builder
  * @Description Test class for REDU_FormulaBuilder_LCTRL. Covers getFieldValue,
- *              updateFieldValue, getCustomMetadataTypes, and verifyFormula,
- *              including happy paths, negative/error scenarios, and string-literal
- *              edge cases for the syntax verifier.
+ *              updateFieldValue, getCustomMetadataTypes, getObjectFields,
+ *              getTargetSObjectType, and verifyFormula, including happy paths,
+ *              negative/error scenarios, strict return-type checks, and
+ *              string-literal edge cases for the syntax verifier.
  * @changehistory
  * ISS-002768 2026-04-03 - Initial test class for Formula Builder Apex Controller
  */
 @isTest
-public class REDU_FormulaBuilder_LCTRL_TEST {
+public class REDU_FormulaBuilder_TEST {
 
     // ─────────────────────────────────────────────────────────────────────────
     // Constants
@@ -94,6 +95,27 @@ public class REDU_FormulaBuilder_LCTRL_TEST {
 
         System.assertEquals('', response.responseData,
             'A null field value must return an empty string, not null');
+    }
+
+    /**
+     * @description Unresolved dynamic objectApiName (starts with '{') must return
+     *              a pending-resolution response with an empty string, not crash SOQL.
+     */
+    @isTest
+    static void testGetFieldValue_PendingResolution_ReturnsEmpty() {
+        Account acc = getTestAccount();
+
+        Test.startTest();
+        REDU_LightningResponse response = REDU_FormulaBuilder_LCTRL.getFieldValue(
+            '{!dynamicField}', FIELD_API_NAME, acc.Id
+        );
+        Test.stopTest();
+
+        System.assertNotEquals(null, response, 'Response must not be null');
+        System.assertEquals(true, response.isSuccess,
+            'Pending resolution must return isSuccess = true');
+        System.assertEquals('', response.responseData,
+            'Pending resolution must return an empty responseData');
     }
 
     /**
@@ -298,6 +320,24 @@ public class REDU_FormulaBuilder_LCTRL_TEST {
     }
 
     /**
+     * @description Blank fieldPath must return a non-success response (not throw).
+     */
+    @isTest
+    static void testGetTargetSObjectType_BlankFieldPath_ReturnsNonSuccess() {
+        Account acc = getTestAccount();
+
+        Test.startTest();
+        REDU_LightningResponse response = REDU_FormulaBuilder_LCTRL.getTargetSObjectType(
+            'Account', '', acc.Id
+        );
+        Test.stopTest();
+
+        System.assertNotEquals(null, response, 'Response must not be null');
+        System.assertEquals(false, response.isSuccess,
+            'Blank fieldPath must return isSuccess = false');
+    }
+
+    /**
      * @description Blank recordId must return a non-success response (not throw).
      */
     @isTest
@@ -318,7 +358,7 @@ public class REDU_FormulaBuilder_LCTRL_TEST {
     // ─────────────────────────────────────────────────────────────────────────
 
     /**
-     * @description Happy path: Account is a guaranteed sObject in every org.
+     * @description Happy path: Account is a standard SObject (goes through Schema describe).
      *              The method must return a non-empty array of {apiName, label} objects.
      */
     @isTest
@@ -340,7 +380,8 @@ public class REDU_FormulaBuilder_LCTRL_TEST {
     }
 
     /**
-     * @description Standard SObject Organisation / User must also be describable.
+     * @description Organization is in the curated system-variable map — the method
+     *              must return the hardcoded field list rather than a Schema describe.
      */
     @isTest
     static void testGetObjectFields_Organization_ReturnsFields() {
@@ -351,6 +392,21 @@ public class REDU_FormulaBuilder_LCTRL_TEST {
         System.assertNotEquals(null, response, 'Response must not be null');
         List<Object> fields = (List<Object>) JSON.deserializeUntyped(response.responseData);
         System.assert(fields.size() > 0, 'Organization must have at least one field');
+    }
+
+    /**
+     * @description '$User' prefix form: the '$' is stripped before the map lookup
+     *              and the curated User field list must be returned.
+     */
+    @isTest
+    static void testGetObjectFields_DollarPrefixedSystemVar_ReturnsFields() {
+        Test.startTest();
+        REDU_LightningResponse response = REDU_FormulaBuilder_LCTRL.getObjectFields('$User');
+        Test.stopTest();
+
+        System.assertNotEquals(null, response, 'Response must not be null');
+        List<Object> fields = (List<Object>) JSON.deserializeUntyped(response.responseData);
+        System.assert(fields.size() > 0, '$User must return at least one field');
     }
 
     /**
@@ -381,27 +437,6 @@ public class REDU_FormulaBuilder_LCTRL_TEST {
     // ─────────────────────────────────────────────────────────────────────────
 
     /**
-     * @description Valid boolean infix formula with balanced parens → isValid = true.
-     *              Avoids picklist = 'value' comparisons which FormulaEval rejects
-     *              (picklist equality requires ISPICKVAL()).
-     */
-    @isTest
-    static void testVerifyFormula_ValidInfixFormula() {
-        Account acc = getTestAccount();
-
-        Test.startTest();
-        REDU_LightningResponse response = REDU_FormulaBuilder_LCTRL.verifyFormula(
-            'NOT(ISBLANK(Name))',
-            OBJECT_API_NAME, acc.Id
-        );
-        Test.stopTest();
-
-        Map<String, Object> result = (Map<String, Object>) JSON.deserializeUntyped(response.responseData);
-        System.assertEquals(true, (Boolean) result.get('isValid'),
-            'Syntax failed: ' + result.get('errorMessage'));
-    }
-
-    /**
      * @description Valid numeric formula → isValid = true.
      *              Verifies that Decimal return type is accepted alongside Boolean.
      */
@@ -412,7 +447,7 @@ public class REDU_FormulaBuilder_LCTRL_TEST {
         Test.startTest();
         REDU_LightningResponse response = REDU_FormulaBuilder_LCTRL.verifyFormula(
             'AnnualRevenue * 2',
-            OBJECT_API_NAME, acc.Id
+            OBJECT_API_NAME, acc.Id, null
         );
         Test.stopTest();
 
@@ -423,7 +458,7 @@ public class REDU_FormulaBuilder_LCTRL_TEST {
 
     /**
      * @description Valid function-style formula: AND() wrapping multiple conditions
-     *              → isValid = true. Verifies AND( is not treated as a missing-operand error.
+     *              → isValid = true.
      */
     @isTest
     static void testVerifyFormula_ValidFunctionStyleFormula() {
@@ -432,7 +467,7 @@ public class REDU_FormulaBuilder_LCTRL_TEST {
         Test.startTest();
         REDU_LightningResponse response = REDU_FormulaBuilder_LCTRL.verifyFormula(
             'AND(AnnualRevenue > 0, NOT(ISBLANK(Name)))',
-            OBJECT_API_NAME, acc.Id
+            OBJECT_API_NAME, acc.Id, null
         );
         Test.stopTest();
 
@@ -452,7 +487,7 @@ public class REDU_FormulaBuilder_LCTRL_TEST {
         Test.startTest();
         REDU_LightningResponse response = REDU_FormulaBuilder_LCTRL.verifyFormula(
             'Name = \'AND (OR)\'',
-            OBJECT_API_NAME, acc.Id
+            OBJECT_API_NAME, acc.Id, null
         );
         Test.stopTest();
 
@@ -463,8 +498,6 @@ public class REDU_FormulaBuilder_LCTRL_TEST {
 
     /**
      * @description Formula containing a string literal inside a function call → isValid = true.
-     *              Uses CONTAINS() which is universally accepted by FormulaEval and
-     *              exercises the string-literal code path without picklist/equality issues.
      */
     @isTest
     static void testVerifyFormula_EscapedQuoteInsideString_IsValid() {
@@ -473,13 +506,83 @@ public class REDU_FormulaBuilder_LCTRL_TEST {
         Test.startTest();
         REDU_LightningResponse response = REDU_FormulaBuilder_LCTRL.verifyFormula(
             'CONTAINS(Name, \'test\')',
-            OBJECT_API_NAME, acc.Id
+            OBJECT_API_NAME, acc.Id, null
         );
         Test.stopTest();
 
         Map<String, Object> result = (Map<String, Object>) JSON.deserializeUntyped(response.responseData);
         System.assertEquals(true, (Boolean) result.get('isValid'),
             'String literal in CONTAINS() failed: ' + result.get('errorMessage'));
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // verifyFormula — Strict Return-Type Tests
+    // ─────────────────────────────────────────────────────────────────────────
+
+    /**
+     * @description Strict type 'Checkbox': a valid Boolean formula should compile
+     *              and return matchedType = 'Checkbox'.
+     */
+    @isTest
+    static void testVerifyFormula_StrictType_Checkbox_Valid() {
+        Account acc = getTestAccount();
+
+        Test.startTest();
+        REDU_LightningResponse response = REDU_FormulaBuilder_LCTRL.verifyFormula(
+            'NOT(ISBLANK(Name))',
+            OBJECT_API_NAME, acc.Id, 'Checkbox'
+        );
+        Test.stopTest();
+
+        Map<String, Object> result = (Map<String, Object>) JSON.deserializeUntyped(response.responseData);
+        System.assertEquals(true, (Boolean) result.get('isValid'),
+            'Checkbox formula failed: ' + result.get('errorMessage'));
+        System.assertEquals('Checkbox', (String) result.get('matchedType'),
+            'matchedType must be Checkbox');
+    }
+
+    /**
+     * @description Strict type 'Checkbox' with a numeric formula → isValid = false.
+     *              Exercises the 'Formula does not return X' error prefix.
+     */
+    @isTest
+    static void testVerifyFormula_StrictType_Checkbox_TypeMismatch() {
+        Account acc = getTestAccount();
+
+        Test.startTest();
+        REDU_LightningResponse response = REDU_FormulaBuilder_LCTRL.verifyFormula(
+            'AnnualRevenue * 2',
+            OBJECT_API_NAME, acc.Id, 'Checkbox'
+        );
+        Test.stopTest();
+
+        Map<String, Object> result = (Map<String, Object>) JSON.deserializeUntyped(response.responseData);
+        System.assertEquals(false, (Boolean) result.get('isValid'),
+            'Numeric formula with Checkbox type must return isValid = false');
+        System.assertNotEquals(null, result.get('errorMessage'),
+            'Error message must be present when type check fails');
+    }
+
+    /**
+     * @description Strict type 'Number': a valid numeric formula should compile
+     *              and return matchedType = 'Number'.
+     */
+    @isTest
+    static void testVerifyFormula_StrictType_Number_Valid() {
+        Account acc = getTestAccount();
+
+        Test.startTest();
+        REDU_LightningResponse response = REDU_FormulaBuilder_LCTRL.verifyFormula(
+            'AnnualRevenue * 2',
+            OBJECT_API_NAME, acc.Id, 'Number'
+        );
+        Test.stopTest();
+
+        Map<String, Object> result = (Map<String, Object>) JSON.deserializeUntyped(response.responseData);
+        System.assertEquals(true, (Boolean) result.get('isValid'),
+            'Number formula failed: ' + result.get('errorMessage'));
+        System.assertEquals('Number', (String) result.get('matchedType'),
+            'matchedType must be Number');
     }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -496,7 +599,7 @@ public class REDU_FormulaBuilder_LCTRL_TEST {
         Test.startTest();
         REDU_LightningResponse response = REDU_FormulaBuilder_LCTRL.verifyFormula(
             'Name = \'Technology',   // opening quote never closed
-            OBJECT_API_NAME, acc.Id
+            OBJECT_API_NAME, acc.Id, null
         );
         Test.stopTest();
 
@@ -518,7 +621,7 @@ public class REDU_FormulaBuilder_LCTRL_TEST {
         Test.startTest();
         REDU_LightningResponse response = REDU_FormulaBuilder_LCTRL.verifyFormula(
             'Name = \'(hello',
-            OBJECT_API_NAME, acc.Id
+            OBJECT_API_NAME, acc.Id, null
         );
         Test.stopTest();
 
@@ -543,7 +646,7 @@ public class REDU_FormulaBuilder_LCTRL_TEST {
         Test.startTest();
         REDU_LightningResponse response = REDU_FormulaBuilder_LCTRL.verifyFormula(
             '((AnnualRevenue > 0 AND ISBLANK(Industry))',
-            OBJECT_API_NAME, acc.Id
+            OBJECT_API_NAME, acc.Id, null
         );
         Test.stopTest();
 
@@ -564,7 +667,7 @@ public class REDU_FormulaBuilder_LCTRL_TEST {
         Test.startTest();
         REDU_LightningResponse response = REDU_FormulaBuilder_LCTRL.verifyFormula(
             'AnnualRevenue > 0)',
-            OBJECT_API_NAME, acc.Id
+            OBJECT_API_NAME, acc.Id, null
         );
         Test.stopTest();
 
@@ -589,7 +692,7 @@ public class REDU_FormulaBuilder_LCTRL_TEST {
         Test.startTest();
         REDU_LightningResponse response = REDU_FormulaBuilder_LCTRL.verifyFormula(
             'AnnualRevenue > 0 AND AND ISBLANK(Industry)',
-            OBJECT_API_NAME, acc.Id
+            OBJECT_API_NAME, acc.Id, null
         );
         Test.stopTest();
 
@@ -610,7 +713,7 @@ public class REDU_FormulaBuilder_LCTRL_TEST {
         Test.startTest();
         REDU_LightningResponse response = REDU_FormulaBuilder_LCTRL.verifyFormula(
             'AnnualRevenue > 0 OR OR ISBLANK(Industry)',
-            OBJECT_API_NAME, acc.Id
+            OBJECT_API_NAME, acc.Id, null
         );
         Test.stopTest();
 
@@ -631,7 +734,7 @@ public class REDU_FormulaBuilder_LCTRL_TEST {
         Test.startTest();
         REDU_LightningResponse response = REDU_FormulaBuilder_LCTRL.verifyFormula(
             'AnnualRevenue > 0 OR',
-            OBJECT_API_NAME, acc.Id
+            OBJECT_API_NAME, acc.Id, null
         );
         Test.stopTest();
 
@@ -652,7 +755,7 @@ public class REDU_FormulaBuilder_LCTRL_TEST {
         Test.startTest();
         REDU_LightningResponse response = REDU_FormulaBuilder_LCTRL.verifyFormula(
             'IF(AnnualRevenue > 0 \'yes\' \'no\')',
-            OBJECT_API_NAME, acc.Id
+            OBJECT_API_NAME, acc.Id, null
         );
         Test.stopTest();
 
@@ -674,7 +777,7 @@ public class REDU_FormulaBuilder_LCTRL_TEST {
         Test.startTest();
         REDU_LightningResponse response = REDU_FormulaBuilder_LCTRL.verifyFormula(
             'FakeFieldThatDoesNotExist99__c > 0',
-            OBJECT_API_NAME, acc.Id
+            OBJECT_API_NAME, acc.Id, null
         );
         Test.stopTest();
 
@@ -698,10 +801,10 @@ public class REDU_FormulaBuilder_LCTRL_TEST {
 
         Test.startTest();
         REDU_LightningResponse blankResp = REDU_FormulaBuilder_LCTRL.verifyFormula(
-            '', OBJECT_API_NAME, acc.Id
+            '', OBJECT_API_NAME, acc.Id, null
         );
         REDU_LightningResponse wsResp = REDU_FormulaBuilder_LCTRL.verifyFormula(
-            '   ', OBJECT_API_NAME, acc.Id
+            '   ', OBJECT_API_NAME, acc.Id, null
         );
         Test.stopTest();
 
@@ -720,7 +823,7 @@ public class REDU_FormulaBuilder_LCTRL_TEST {
     static void testVerifyFormula_BlankObjectApiName() {
         Test.startTest();
         REDU_LightningResponse response = REDU_FormulaBuilder_LCTRL.verifyFormula(
-            'AnnualRevenue > 0', '', null
+            'AnnualRevenue > 0', '', null, null
         );
         Test.stopTest();
 
