@@ -20,6 +20,7 @@
  * @changehistory
  * ISS-002768 2026-04-03 - Initial development of Formula Builder LWC JavaScript controller
  * ISS-002768 2026-04-06 - Verify Formula modal; verification opt-in; explicit Verify button
+ * ISS-002768 2026-04-10 - expectedReturnType @api prop; dynamic success message with matched type; lightning-record-picker event handling
  */
 import { LightningElement, api, track, wire } from 'lwc';
 import { getObjectInfo }                       from 'lightning/uiObjectInfoApi';
@@ -131,6 +132,15 @@ export default class FormulaBuilder extends LightningElement {
      *              Set to false in production to suppress console output.
      */
     @api enableDebugMode = false;
+
+    /**
+     * @description Optional expected return type for strict formula validation
+     *              (e.g. 'Checkbox', 'Text', 'Number', 'Currency', 'Percent').
+     *              When set, verifyFormula will also confirm that the formula
+     *              evaluates to this type and block saving on a mismatch.
+     *              Leave blank (undefined / null) for auto-detection only.
+     */
+    @api expectedReturnType;
 
     // ─── Tracked State ────────────────────────────────────────────────────────
 
@@ -596,9 +606,10 @@ export default class FormulaBuilder extends LightningElement {
 
         // ── Step 1: syntax check ─────────────────────────────────────────────
         apexVerifyFormula({
-            formulaStr    : this.currentFormulaValue,
-            objectApiName : this._targetSObjectApiName,
-            recordId      : null   // syntax-only; no record context needed here
+            formulaStr        : this.currentFormulaValue,
+            objectApiName     : this._targetSObjectApiName,
+            recordId          : null,   // syntax-only; no record context needed here
+            expectedReturnType: this.expectedReturnType || null
         })
         .then(verifyResponse => {
             const res = verifyResponse.responseData
@@ -614,6 +625,10 @@ export default class FormulaBuilder extends LightningElement {
                 this.consoleLog('handleUpdateOnclick — blocked by invalid formula', res);
                 return Promise.reject({ _blocked: true });
             }
+
+            // Inform the user of the verified type before persisting
+            const matchedLabel = res.matchedType ? ` (Return Type: ${res.matchedType})` : '';
+            this._showToast('info', 'Verification Passed', `Formula syntax is valid.${matchedLabel}`);
 
             // ── Step 2: persist ──────────────────────────────────────────────
             return apexUpdateFieldValue({
@@ -798,10 +813,11 @@ export default class FormulaBuilder extends LightningElement {
      * @description Keeps _verifyRecordId in sync as the user types in the modal
      *              record Id input.  Does NOT trigger verification — the user must
      *              click the Verify button to run the check explicitly.
-     * @param {Event} event onchange event from lightning-input
+     * @param {Event} event onchange event from lightning-record-picker;
+     *                      event.detail.value is the selected record Id string or null.
      */
     handleVerifyRecordInput(event) {
-        this._verifyRecordId = (event.detail.value || '').trim();
+        this._verifyRecordId = event.detail.value || null;
         this.consoleLog('handleVerifyRecordInput', { recordId: this._verifyRecordId });
     }
 
@@ -826,16 +842,18 @@ export default class FormulaBuilder extends LightningElement {
         this.toggleSpinner(1);
 
         apexVerifyFormula({
-            formulaStr    : this.currentFormulaValue,
-            objectApiName : this._targetSObjectApiName,   // resolved SObject, not raw prop
-            recordId      : this._verifyRecordId || null
+            formulaStr        : this.currentFormulaValue,
+            objectApiName     : this._targetSObjectApiName,   // resolved SObject, not raw prop
+            recordId          : this._verifyRecordId || null,
+            expectedReturnType: this.expectedReturnType || null
         })
         .then(response => {
             const res = response.responseData ? JSON.parse(response.responseData) : {};
+            const matchedLabel = res.matchedType ? ` (Return Type: ${res.matchedType})` : '';
             this.verifyModalResult = {
                 isValid : res.isValid,
                 message : res.isValid
-                    ? 'Formula syntax is valid.'
+                    ? `Formula syntax is valid.${matchedLabel}`
                     : res.errorMessage
             };
             this.consoleLog('_runVerify — result', this.verifyModalResult);

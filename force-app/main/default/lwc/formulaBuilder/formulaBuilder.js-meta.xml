@@ -1,142 +1,22 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <LightningComponentBundle xmlns="http://soap.sforce.com/2006/04/metadata">
-
-    <apiVersion>59.0</apiVersion>
+    <apiVersion>60.0</apiVersion>
     <isExposed>true</isExposed>
-    <description>
-        Formula Builder (ISS-002768) — Interactive formula editor LWC.
-        View mode shows the current formula stored in the configured field.
-        Edit mode exposes System Variables, Fields, Functions and Operators
-        comboboxes that insert tokens at the cursor, a live formula textarea,
-        and a Verify modal that syntax-checks the formula against a sample record
-        before saving it back to the record via the Update button.
-    </description>
+    <masterLabel>REDU - Formula Builder</masterLabel>
 
-    <!--
-        Supported surfaces:
-          - Record pages (RecordPage)  — primary target; recordId is auto-supplied
-          - App pages   (AppPage)      — must set recordId manually via the property
-          - Flow screens (Flow)        — all four @api props supplied as flow inputs
-    -->
     <targets>
         <target>lightning__RecordPage</target>
-        <target>lightning__AppPage</target>
-        <target>lightning__FlowScreen</target>
     </targets>
 
     <targetConfigs>
-
-        <!-- ── Record Page ──────────────────────────────────────────────────
-             recordId and objectApiName are provided automatically by the
-             Lightning record page context and do NOT appear here.
-             Admins only need to configure the field name and edit permissions.
-        ─────────────────────────────────────────────────────────────────── -->
         <targetConfig targets="lightning__RecordPage">
-
-            <property
-                name="targetObjectApiName"
-                type="String"
-                label="Object API Name"
-                description="API name of the object that owns the formula field (e.g. Study_Requirement_Set__c). On a record page this is usually inherited from context but can be overridden here."
-                required="true" />
-
-            <property
-                name="targetFieldApiName"
-                type="String"
-                label="Formula Field API Name"
-                description="API name of the field that stores the formula string (e.g. Criteria__c)."
-                required="true" />
-
-            <property
-                name="allowEdit"
-                type="Boolean"
-                label="Allow Editing"
-                description="Show the Edit button and allow users to modify the formula. Set to false for a read-only display."
-                default="false" />
-
-            <property
-                name="enableDebugMode"
-                type="Boolean"
-                label="Enable Debug Logging"
-                description="When true, verbose debug statements are written to the browser console via logInfo. Disable in production."
-                default="false" />
-
+            <property name="targetObjectApiName"  type="String"  label="Target Object API Name"  description="The API name of the object (e.g., Account)" required="true" />
+            <property name="targetFieldApiName"   type="String"  label="Target Field API Name"   description="The API name of the field (e.g., Description)" required="true" />
+            <property name="expectedReturnType"   type="String"  label="Expected Return Type"    description="Select the type this formula must return. Leave blank for auto-detection."
+                      datasource="Checkbox,Date,DateTime,Number,Currency,Percent,Text,Time,Id,Integer,Long" />
+            <property name="allowEdit"            type="Boolean" label="Allow Edit"              description="Show the Edit button and allow users to modify the formula." default="true" />
+            <property name="enableDebugMode"      type="Boolean" label="Enable Debug Mode"       description="When true, verbose debug statements are written to the browser console. Disable in production." default="false" />
         </targetConfig>
-
-        <!-- ── App Page ─────────────────────────────────────────────────────
-             All four @api props must be set; recordId must also be provided
-             because there is no implicit record context on an App page.
-        ─────────────────────────────────────────────────────────────────── -->
-        <targetConfig targets="lightning__AppPage">
-
-            <property
-                name="targetObjectApiName"
-                type="String"
-                label="Object API Name"
-                description="API name of the Salesforce object (e.g. Study_Requirement_Set__c)."
-                required="true" />
-
-            <property
-                name="targetFieldApiName"
-                type="String"
-                label="Formula Field API Name"
-                description="API name of the field that stores the formula (e.g. Criteria__c)."
-                required="true" />
-
-            <property
-                name="allowEdit"
-                type="Boolean"
-                label="Allow Editing"
-                description="Show the Edit button and allow users to modify the formula."
-                default="false" />
-
-            <property
-                name="enableDebugMode"
-                type="Boolean"
-                label="Enable Debug Logging"
-                description="Write verbose debug statements to the browser console via logInfo."
-                default="false" />
-
-        </targetConfig>
-
-        <!-- ── Flow Screen ──────────────────────────────────────────────────
-             All four @api props are available as flow input variables.
-             recordId should be mapped from the flow's record variable.
-        ─────────────────────────────────────────────────────────────────── -->
-        <targetConfig targets="lightning__FlowScreen">
-
-            <property
-                name="targetObjectApiName"
-                type="String"
-                role="inputOnly"
-                label="Object API Name"
-                description="API name of the Salesforce object." />
-
-            <property
-                name="targetFieldApiName"
-                type="String"
-                role="inputOnly"
-                label="Formula Field API Name"
-                description="API name of the field that stores the formula." />
-
-            <property
-                name="allowEdit"
-                type="Boolean"
-                role="inputOnly"
-                label="Allow Editing"
-                description="Show the Edit button and allow users to modify the formula."
-                default="false" />
-
-            <property
-                name="enableDebugMode"
-                type="Boolean"
-                role="inputOnly"
-                label="Enable Debug Logging"
-                description="Write verbose debug statements to the browser console via logInfo."
-                default="false" />
-
-        </targetConfig>
-
     </targetConfigs>
 
 </LightningComponentBundle>
